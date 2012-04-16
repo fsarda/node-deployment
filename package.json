@@ -1,0 +1,17 @@
+{
+	"contributors": [
+		{"name": "Francelice Sarda", "email": "francelice.sarda@agrosica.com"}
+	],
+	"name": "deployment-srv",
+	"version": "0.1.0",
+	"description": "The (private) Production deployment Node.js Server",
+	"bin": {
+		"deployment-srv": "./init.sh",
+		"deployment-node": "./deployment.js"
+	},
+        "dependencies": {
+            "express": "*",
+	    "jqtpl": "*"
+	},
+	"private": true
+}
