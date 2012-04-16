@@ -6,7 +6,7 @@
 	"version": "0.1.0",
 	"description": "The (private) Production deployment Node.js Server",
 	"bin": {
-		"deployment-srv": "./init.sh",
+		"deployment": "./init.sh",
 		"deployment-node": "./deployment.js"
 	},
         "dependencies": {

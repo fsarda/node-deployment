@@ -8,7 +8,7 @@ function start {
 
 function stop {
 	echo "Stopping..."
-	killall deployment-node
+	kill `ps -fC node | sed -n '/deployment-node/s/^[^0-9]*\([0-9]*\).*$/\1/gp'`
 	echo "Done."
 }
 
