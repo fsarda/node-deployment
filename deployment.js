@@ -25,13 +25,14 @@ server.configure(function(){
 });
 
 //Setting up error handling
-server.error(function(err, req, res, next){
+/*server.error(function(err, req, res, next){
     if (err instanceof SyntaxError) {
         res.render('404.jade');
     } else {
         next(err);
     }
 });
+*/
 
 //Rendering index.html on '/' url get
 server.get('/', function(req, res){
