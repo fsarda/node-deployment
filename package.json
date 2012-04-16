@@ -10,7 +10,7 @@
 		"deployment-node": "./deployment.js"
 	},
         "dependencies": {
-            "express": "*",
+            "express": "2.x",
 	    "jqtpl": "*"
 	},
 	"private": true
