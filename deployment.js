@@ -13,27 +13,32 @@ var server = express.createServer();
 
 //Setting up server configuration
 server.configure(function(){
-	server.set('views', __dirname + '/views');
-	server.set('view engine', 'html');
-	server.use(express.favicon());
-	server.use(express.logger('dev'));
-	server.use(express.static(__dirname + '/public'));
-	server.use(express.methodOverride());
-	server.use(server.router);
+    server.set('views', __dirname + '/views');
+    server.set('view engine', 'html');
+    server.use(express.favicon());
+    server.use(express.logger('dev'));
+    server.use(express.static(__dirname + '/public'));
+    server.use(express.methodOverride());
+    server.use(server.router);
 
 });
 
 //Rendering index.html on '/' url get
 server.get('/', function(req, res){
-	res.render('index.html');
-
+    res.sendfile(__dirname + '/views/index.html');
 });
 
 //Setting up action on '/sayhello' url post
 server.post('/sayhello', express.bodyParser(), function(req, res) {
+
+    if(req.body.ref.indexOf("production")!= -1){
+	res.send("Proccessing...");
+    }else{
 	res.send("Hello World!!! :D");
+    }
+    
 }, function(err, req, res, next) {
-	res.send("Good Bye World :(");
+    res.send("Good Bye World :(");
 });
 
 //Starting listener on configured port and host
