@@ -1,0 +1,37 @@
+{
+
+"frontend":{
+    "host": "localhost",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
+},
+
+"commonrpc":{
+    "host": "localhost",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
+},
+
+"commondb":{
+    "host": "localhost",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
+},
+
+"sorl":{
+    "host": "localhost",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
+},
+
+"images":{
+    "host": "localhost",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
+}
+}

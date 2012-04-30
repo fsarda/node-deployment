@@ -1,0 +1,107 @@
+{"mail":{
+    "dependencies": [
+	{"name":"registration", "type":"soft"}
+    ],
+    "level": 1,
+    "installAction":"script to copy and install mail",
+    "restartAction":"script to restart the mail server",
+    "location" : "frontend"
+},
+ "rendering":{
+    "dependencies": [],
+     "level": 5,
+     "installAction":"script to copy and install rendering",
+     "restartAction":"script to restart the rendering server",
+     "location" : "frontend"
+ },
+ "registration":{
+     "dependencies": [
+	 {"name":"image", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install registration",
+     "restartAction":"script to restart the registration server",
+    "location" : "commonrpc"
+ },
+ "geolocation":{
+     "dependencies": [
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install geolocation",
+     "restartAction":"script to restart the geolocation server",
+     "location" : "frontend"
+ },
+ "discover":{
+    "dependencies": [],
+     "level": 4,
+     "installAction":"script to copy and install discover",
+     "restartAction":"script to restart the discover server",
+     "location" : "commonrpc"
+ },
+ "social":{
+     "dependencies": [],
+     "level": 4,
+     "installAction":"script to copy and install social",
+     "restartAction":"script to restart the social server",
+     "location" : "commonrpc"
+},
+ "image":{
+     "dependencies": [
+	 {"name":"social", "type":"soft"},
+	 {"name":"discover", "type":"hard"}
+     ],
+     "level": 3,
+     "installAction":"script to copy and install image",
+     "restartAction":"script to restart the image server",
+     "location" : "images"
+ },
+ "search":{
+     "dependencies": [
+	 {"name":"social", "type":"soft"},
+	{"name":"discover", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "frontend"
+ },
+ "jsonrpc_client":{
+     "dependencies": [
+	 {"name":"all", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "frontend"
+ },
+ "jsonrpc_server":{
+     "dependencies": [
+	 {"name":"all", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "frontend"
+ },
+ "SHA2":{
+     "dependencies": [
+	 {"name":"all", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "frontend"
+ },
+ "utils":{
+     "dependencies": [
+	 {"name":"all", "type":"hard"}
+     ],
+     "level": 2,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "frontend"
+ }
+ 
+}
