@@ -95,6 +95,6 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     res.send("An error has occurred processing the request..." + err);
 });
 
-//Starting listener on configured port and host
-server.listen(config.rpc.port,config.rpc.host);
+//Starting listener on configured port
+server.listen(config.rpc.port);
 console.log('Deployment server running on port "' + config.rpc.port);

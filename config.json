@@ -1,6 +1,5 @@
 {
 	"rpc": {
-		"host": "localhost",
 		"port": 8011
 	}
 	

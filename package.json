@@ -1,6 +1,7 @@
 {
 	"contributors": [
-		{"name": "Francelice Sarda", "email": "francelice.sarda@agrosica.com"}
+		{"name": "Francelice Sarda", "email": "francelice.sarda@agrosica.com"},
+		{"name": "David Ellis", "email": "david.ellis@agrosica.com"}
 	],
 	"name": "deployment-srv",
 	"version": "0.1.0",
