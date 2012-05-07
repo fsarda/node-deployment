@@ -1,4 +1,5 @@
-{"mail":{
+{
+"mail":{
     "dependencies": [
 	{"name":"registration", "type":"soft"}
     ],
@@ -7,7 +8,7 @@
     "restartAction":"script to restart the mail server",
     "location" : "frontend"
 },
- "rendering":{
+ "rendering":{       
     "dependencies": [],
      "level": 5,
      "installAction":"script to copy and install rendering",
@@ -102,6 +103,12 @@
      "installAction":"script to copy and install search",
      "restartAction":"script to restart the search server",
      "location" : "frontend"
- }
- 
+ },
+ "deployment":{
+     "dependencies": [],
+     "level": 1,
+     "installAction":"script to copy and install search",
+     "restartAction":"script to restart the search server",
+     "location" : "development"
+ } 
 }

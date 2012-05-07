@@ -33,5 +33,12 @@
     "user": "agrosicauser",
     "password": "agrosicapassword",
     "destinationFolder": "path/to/deploy"
+},
+
+"development":{
+    "host": "dev.agorsica.com",
+    "user": "agrosicauser",
+    "password": "agrosicapassword",
+    "destinationFolder": "path/to/deploy"
 }
 }
