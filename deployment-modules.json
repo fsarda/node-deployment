@@ -4,15 +4,15 @@
 	{"name":"registration", "type":"soft"}
     ],
     "level": 1,
-    "installAction":"script to copy and install mail",
-    "restartAction":"script to restart the mail server",
+    "install":"script to copy and install mail",
+    "restart":"script to restart the mail server",
     "location" : "frontend"
 },
  "rendering":{       
     "dependencies": [],
      "level": 5,
-     "installAction":"script to copy and install rendering",
-     "restartAction":"script to restart the rendering server",
+     "install":"script to copy and install rendering",
+     "restart":"script to restart the rendering server",
      "location" : "frontend"
  },
  "registration":{
@@ -20,8 +20,8 @@
 	 {"name":"image", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install registration",
-     "restartAction":"script to restart the registration server",
+     "install":"script to copy and install registration",
+     "restart":"script to restart the registration server",
     "location" : "commonrpc"
  },
  "geolocation":{
@@ -30,22 +30,22 @@
 	 {"name":"discover", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install geolocation",
-     "restartAction":"script to restart the geolocation server",
+     "install":"script to copy and install geolocation",
+     "restart":"script to restart the geolocation server",
      "location" : "frontend"
  },
  "discover":{
     "dependencies": [],
      "level": 4,
-     "installAction":"script to copy and install discover",
-     "restartAction":"script to restart the discover server",
+     "install":"script to copy and install discover",
+     "restart":"script to restart the discover server",
      "location" : "commonrpc"
  },
  "social":{
      "dependencies": [],
      "level": 4,
-     "installAction":"script to copy and install social",
-     "restartAction":"script to restart the social server",
+     "install":"script to copy and install social",
+     "restart":"script to restart the social server",
      "location" : "commonrpc"
 },
  "image":{
@@ -54,8 +54,8 @@
 	 {"name":"discover", "type":"hard"}
      ],
      "level": 3,
-     "installAction":"script to copy and install image",
-     "restartAction":"script to restart the image server",
+     "install":"script to copy and install image",
+     "restart":"script to restart the image server",
      "location" : "images"
  },
  "search":{
@@ -64,8 +64,8 @@
 	{"name":"discover", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "jsonrpc_client":{
@@ -73,8 +73,8 @@
 	 {"name":"all", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "jsonrpc_server":{
@@ -82,8 +82,8 @@
 	 {"name":"all", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "SHA2":{
@@ -91,8 +91,8 @@
 	 {"name":"all", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "utils":{
@@ -100,15 +100,15 @@
 	 {"name":"all", "type":"hard"}
      ],
      "level": 2,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "deployment":{
      "dependencies": [],
      "level": 1,
-     "installAction":"script to copy and install search",
-     "restartAction":"script to restart the search server",
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
      "location" : "development"
  } 
 }

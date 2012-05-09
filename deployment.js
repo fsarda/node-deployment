@@ -76,15 +76,12 @@ var getModifiedEntities = function(request){
 	var deleted = current.deleted== undefined ? [] :current.deleted;
 	commitModules = commitModules.concat(added,modified,deleted);
     }
-   
-    //removing duplicates
-    commitModules = commitModules.sort().filter(function(val,index,ar){return  (val != ar[index-1]);});
-    
+       
     //Getting affected entities
-    affetedEntities = commitModules.map(getMappedEntity);
-    affetedEntities = affetedEntities.filter(function(val){return val != null});
+    affectedEntities = commitModules.map(getMappedEntity);
+    affectedEntities = affectedEntities.filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
 
-    return affetedEntities;
+    return affectedEntities;
 }
 
 /*
@@ -92,40 +89,98 @@ Get dependency subGraph: Given a set of modified entities
 we want to build a graph containing the information to execute
 deployment.
 */
-var getDependencySubGraph = function(entities){
-	
-    var result = [];
-    var subgraph = [];
-    var pending = entities;
-    var ent = pending.length -1;
 
-    //build complete dependencies array
-    while(pending.length != 0){
 
-	if(result.indexOf(pending[ent])==-1){
-	    result.push(pending[ent]);
-	}
-	
-	for(dep in modules[pending[ent]].dependencies){
-	    if(pending.indexOf(modules[pending[ent]].dependencies[dep].name)==-1){
-		pending.push(modules[pending[ent]].dependencies[dep].name);
-	    }
-	}
-	
-	pending.splice(ent,1);
-	ent = pending.length-1;
-    }
+var getActionsToTake = function(dependency, entity){
+    
+    var type = modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
+    var action = "";
 
-    //build objects from dependencies
-    for(res in result){
-	subgraph.push(modules[result[res]]);
+    switch(type){
+    case "hard":
+	action = "restart";
+	break;
+    case "soft":
+	break;
+    default:
+	action = "restart";
+	break;
     }
     
-    //sort by level in graph
-    subgraph = subgraph.sort(function(a,b){return a.level - b.level});
-    return subgraph;
+    return action;
+}
+
+
+var getDependencySubGraph = function(entities){
+    
+    var result = [];
+    var resultNames = [];
+    var subgraph = [];
+    var pending = [];
+    var pendingNames = [];
+    var pendingIndex = 0;
+    
+    //Initialize pending array with modified entities
+    //This entities have to be reinstalled and restarted
+    //In case of being dependencies of type library, restart
+    //action will be null so it will be only installed
+    for(entityIndex in entities){
+	if(pending.indexOf(entities[entityIndex])==-1){
+	    var aux = {
+		"name": entities[entityIndex],
+		"level": modules[entities[entityIndex]].level,
+		"actions": ["install", "restart"]
+	    }; 
+	    pending.push(aux);
+	    pendingNames.push(entities[entityIndex]);
+	}
+    }
+    
+
+    //Look for dependencies and respective actions to take
+    pendingIndex = pending.length-1;
+    
+    while(pending.length != 0){
+	
+	//Let's put the entity in the result array
+	if(resultNames.indexOf(pendingNames[pendingIndex])==-1){
+	    result.push(pending[pendingIndex]);
+	    resultNames.push(pendingNames[pendingIndex]);
+	}
+	
+	//Let's add its dependencies to pending array
+	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
+	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
+	    pending.push(
+		{
+		    "name": dependency.name,
+		    "level": modules[dependency.name].level,
+		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name)
+		});    
+	    pendingNames.push(dependency.name);
+	}
+	
+	pending.splice(pendingIndex,1);
+	pendingNames.splice(pendingIndex,1);
+	pendingIndex = pending.length-1;
+    
+    }
+
+    result = result.sort(function(a,b){return a.level - b.level})
+    return result;
     
 }
+
+
+
+var getExecutionFlow = function(node){
+    for(index in graph){
+	node = graph[index];
+	console.log("Module "+ node.name +" is in level "+ node.level + " and the actions to take are: "+ node.actions);
+    }
+}
+
+
 
 //Setting up controller for GET on /
 server.get('/', function(req, res){
@@ -133,6 +188,10 @@ server.get('/', function(req, res){
 });
 
 //Setting up controller on '/deployment' url post
+
+//This is server's main flow. In case of getting a valid
+//request from a github's production push, builds a structure
+//to make production enviroment deployment 
 server.post('/deployment', express.bodyParser(), function(req, res) {
 
     var date = new Date();
@@ -148,10 +207,11 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 	    console.log("["+date+"] List of modified entities: " + servers);	    
 
 	    graph = getDependencySubGraph(servers);
-	    console.log("["+date+"] Dependency graph found: " + graph.map(JSON.stringify));	    
+	    console.log("["+date+"] Dependency subgraph found: " + graph.map(JSON.stringify));	    
 	    
 	    try{
-		//execute scripts
+		console.log("Execution flow found");
+		getExecutionFlow(graph);
 	    }catch(err){
 		
 	    }
