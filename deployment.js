@@ -31,7 +31,7 @@ var isRequestFromGitHubRepository = function(request, configData){
 }
 
 
-//Verifies conditions for running authomatized deployment
+//Verifies conditions for running automated deployment
 var isAuthorizedProductionChange = function(request, configData){
     
     //Check if is a production branch push
@@ -49,7 +49,7 @@ var isAuthorizedProductionChange = function(request, configData){
 //Search the corresponding module for each entity changed
 var getMappedEntity = function(val){
     
-    //We are not interested in file names, only folders
+    //We are not interested in file names, only path to them
     var array = val.split("/");
     var rest =array.splice(0,array.length -1);
     val = rest.join("/");
@@ -89,8 +89,6 @@ Get dependency subGraph: Given a set of modified entities
 we want to build a graph containing the information to execute
 deployment.
 */
-
-
 var getActionsToTake = function(dependency, entity){
     
     var type = modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
@@ -122,8 +120,8 @@ var getDependencySubGraph = function(entities){
     
     //Initialize pending array with modified entities
     //This entities have to be reinstalled and restarted
-    //In case of being dependencies of type library, restart
-    //action will be null so it will be only installed
+    //In case of being dependencies of type library, configured 
+    //restart action will be none so it will be only installed
     for(entityIndex in entities){
 	if(pending.indexOf(entities[entityIndex])==-1){
 	    var aux = {
@@ -139,7 +137,6 @@ var getDependencySubGraph = function(entities){
 
     //Look for dependencies and respective actions to take
     pendingIndex = pending.length-1;
-    
     while(pending.length != 0){
 	
 	//Let's put the entity in the result array
@@ -167,19 +164,16 @@ var getDependencySubGraph = function(entities){
     }
 
     result = result.sort(function(a,b){return a.level - b.level})
-    return result;
-    
+    return result;    
 }
 
-
-
+//Builds deployment execution flow
 var getExecutionFlow = function(node){
     for(index in graph){
 	node = graph[index];
 	console.log("Module "+ node.name +" is in level "+ node.level + " and the actions to take are: "+ node.actions);
     }
 }
-
 
 
 //Setting up controller for GET on /
