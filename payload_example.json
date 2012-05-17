@@ -14,7 +14,7 @@
 		"removed": [], 
 		"timestamp": "2012-04-19T20:45:07-07:00", 
 		"url": "https://github.com/fsarda/hooks-test/commit/d96c27855360bb3dd3b14e4372ffe37f04fe15f7" }, 
-	      { "added": [ "mail/payload","mail/server" ], 
+	      { "added": [ "mail/payload","mail/server", "rendering/social" ], 
 		"author": { "email": "francelice@gmail.com", 
 			    "name": "Francelice Sarda", 
 			    "username": "fsarda" }, 
