@@ -191,6 +191,8 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     var date = new Date();
     console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
 
+    var request  = JSON.parse(req.params.payload);
+
     if(isRequestFromGitHubRepository(req.body, configDeployData)){
 	console.log("["+date+"] This push is from github's " + configDeployData.repositoryName + " repository");
 
