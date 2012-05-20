@@ -192,15 +192,15 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
     
     var request  = JSON.parse(req.body.payload);
-    console.log("["+date+"] Parsing request "+request+"\n");
+    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
-    if(isRequestFromGitHubRepository(req.body, configDeployData)){
+    if(isRequestFromGitHubRepository(request, configDeployData)){
 	console.log("["+date+"] This push is from github's " + configDeployData.repositoryName + " repository");
 
-	if(isAuthorizedProductionChange(req.body, configDeployData)){	    
+	if(isAuthorizedProductionChange(request, configDeployData)){	    
 	    console.log("["+date+"] This is an authorized production branch push");
 	    
-	    servers = getModifiedEntities(req.body);
+	    servers = getModifiedEntities(request);
 	    console.log("["+date+"] List of modified entities: " + servers);	    
 
 	    graph = getDependencySubGraph(servers);
@@ -217,8 +217,8 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 	    res.send("Proccessing...\n");
 	    
 	}else{
-	    console.log("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(req.body));	    
-	    res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(req.body));	    
+	    console.log("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request));	    
+	    res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request));	    
 	}
 	
     }else{
