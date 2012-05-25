@@ -1,77 +1,101 @@
 {
 "mail":{
     "dependencies": [
-	{"name":"registration", "type":"soft"}
+	{"name":"registration", "type":"soft"},
+	{"name":"rendering", "type":"soft"}
     ],
-    "level": 1,
+    "paths":["nodejs/mail/srv", "nodejs/mail/test"],
+    "level": 2,
     "install":"script to copy and install mail",
     "restart":"script to restart the mail server",
     "location" : "frontend"
 },
  "rendering":{       
-    "dependencies": [],
-     "level": 5,
+     "dependencies": [],
+     "paths":["nodejs/rendering"],
+     "level": 6,
      "install":"script to copy and install rendering",
      "restart":"script to restart the rendering server",
      "location" : "frontend"
  },
  "registration":{
      "dependencies": [
-	 {"name":"image", "type":"hard"}
+	 {"name":"image", "type":"hard"},
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"},
+	 {"name":"rendering", "type":"soft"}
      ],
-     "level": 2,
+     "paths":["nodejs/registration"],
+     "level": 3,
      "install":"script to copy and install registration",
      "restart":"script to restart the registration server",
-    "location" : "commonrpc"
+     "location" : "commonrpc"
  },
  "geolocation":{
      "dependencies": [
-	 {"name":"social", "type":"hard"},
-	 {"name":"discover", "type":"hard"}
+	 {"name":"rendering", "type":"soft"}     
      ],
+     "paths":["nodejs/geoloc"],
      "level": 2,
      "install":"script to copy and install geolocation",
      "restart":"script to restart the geolocation server",
      "location" : "frontend"
  },
  "discover":{
-    "dependencies": [],
-     "level": 4,
+     "dependencies": [
+	 {"name":"rendering", "type":"soft"}     
+     ],
+     "paths":["nodejs/discover"],
+     "level": 5,
      "install":"script to copy and install discover",
      "restart":"script to restart the discover server",
      "location" : "commonrpc"
  },
  "social":{
-     "dependencies": [],
-     "level": 4,
+     "dependencies": [
+	 {"name":"rendering", "type":"soft"}   
+     ],
+     "paths":["social"],
+     "level": 5,
      "install":"script to copy and install social",
      "restart":"script to restart the social server",
      "location" : "commonrpc"
-},
+ },
  "image":{
      "dependencies": [
-	 {"name":"social", "type":"soft"},
-	 {"name":"discover", "type":"hard"}
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"},
+	 {"name":"rendering", "type":"soft"}
      ],
-     "level": 3,
+    "paths":["nodejs/image"],
+     "level": 4,
      "install":"script to copy and install image",
      "restart":"script to restart the image server",
      "location" : "images"
  },
  "search":{
      "dependencies": [
-	 {"name":"social", "type":"soft"},
-	{"name":"discover", "type":"hard"}
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"},
+	 {"name":"rendering", "type":"soft"}
      ],
-     "level": 2,
+     "paths":["nodejs/search/srv", "nodejs/search/db", "nodejs/search/test"],
+     "level": 4,
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "jsonrpc_client":{
      "dependencies": [
-	 {"name":"all", "type":"hard"}
+	 {"name":"rendering", "type":"hard"},
+	 {"name":"search-lib", "type":"hard"},
+	 {"name":"registration", "type":"hard"},
+	 {"name":"image", "type":"hard"},
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"},
+	 {"name":"search", "type":"hard"}
      ],
+     "paths":["nodejs/common/jsonrpc_client"],
      "level": 2,
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
@@ -79,17 +103,26 @@
  },
  "jsonrpc_server":{
      "dependencies": [
-	 {"name":"all", "type":"hard"}
+	 {"name":"geolocation", "type":"hard"},
+	 {"name":"mail", "type":"hard"},
+	 {"name":"registration", "type":"hard"},
+	 {"name":"image", "type":"hard"},
+	 {"name":"social", "type":"hard"},
+	 {"name":"discover", "type":"hard"},
+	 {"name":"search", "type":"hard"},
+	 {"name":"search-lib", "type":"hard"}
      ],
-     "level": 2,
+     "paths":["nodejs/common/jsonrpc_server"],
+     "level": 1,
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "SHA2":{
      "dependencies": [
-	 {"name":"all", "type":"hard"}
+	 {"name":"registration", "type":"hard"}
      ],
+     "paths":["nodejs/common/SHA2"],
      "level": 2,
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
@@ -97,18 +130,50 @@
  },
  "utils":{
      "dependencies": [
-	 {"name":"all", "type":"hard"}
+	 {"name":"rendering", "type":"hard"},
+	 {"name":"social", "type":"hard"},
+	 {"name":"mail-lib", "type":"hard"},
+	 {"name":"geolocation", "type":"hard"},
+	 {"name":"mail", "type":"hard"},
+	 {"name":"registration", "type":"hard"},
+	 {"name":"image", "type":"hard"},
+	 {"name":"search-lib", "type":"hard"},
+	 {"name":"discover", "type":"hard"}
      ],
-     "level": 2,
+     "paths":["nodejs/common/utils"],
+     "level": 1,
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
      "location" : "frontend"
  },
  "deployment":{
      "dependencies": [],
-     "level": 1,
+     "level": 6,
+     "paths":["nodejs/deployment"],
      "install":"script to copy and install search",
      "restart":"script to restart the search server",
      "location" : "development"
- } 
+ },
+ "search-lib":{
+     "dependencies": [
+	 {"name":"discover", "type":"hard"},
+	 {"name":"social", "type":"hard"}
+     ],
+     "level": 3,
+     "paths":["nodejs/search/lib"],
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
+     "location" : "development"
+ },
+ "mail-lib":{
+     "dependencies": [
+	 {"name":"rendering", "type":"hard"},
+	 {"name":"registration", "type":"hard"}
+     ],
+     "level": 2,
+     "paths":["nodejs/mail/lib"],
+     "install":"script to copy and install search",
+     "restart":"script to restart the search server",
+     "location" : "development"
+ }
 }

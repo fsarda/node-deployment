@@ -53,11 +53,15 @@ var getMappedEntity = function(val){
     var array = val.split("/");
     var rest =array.splice(0,array.length -1);
     val = rest.join("/");
-
+    
     for(mod in modules){
-	if(val.indexOf(mod)!= -1){
-	    return mod;
-	};
+	var paths = modules[mod].paths;
+	for(path in paths){
+//	    console.log("VALUES " + val + " "+paths[path]+" -- "+val.search(paths[path]));
+	    if(val.search(paths[path])!= -1){
+		return mod;
+	    }
+	}
     }
     
     return null;
