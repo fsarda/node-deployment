@@ -57,7 +57,6 @@ var getMappedEntity = function(val){
     for(mod in modules){
 	var paths = modules[mod].paths;
 	for(path in paths){
-//	    console.log("VALUES " + val + " "+paths[path]+" -- "+val.search(paths[path]));
 	    if(val.search(paths[path])!= -1){
 		return mod;
 	    }
@@ -83,6 +82,7 @@ var getModifiedEntities = function(request){
        
     //Getting affected entities
     affectedEntities = commitModules.map(getMappedEntity);
+    affectedEntities = affectedEntities.sort();
     affectedEntities = affectedEntities.filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
 
     return affectedEntities;
@@ -94,18 +94,22 @@ we want to build a graph containing the information to execute
 deployment.
 */
 var getActionsToTake = function(dependency, entity){
-    
-    var type = modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
-    var action = "";
 
+    var type = (entity==='none')?"initial":modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
+    var action = "";
+    var dependingEntity = modules[dependency];
+    
     switch(type){
     case "hard":
-	action = "restart";
+	action = dependingEntity.type==="server"?["restart"]:["copy","install"];
 	break;
     case "soft":
 	break;
+    case "initial":
+	action = dependingEntity.type==="server"?["copy","install","restart"]:["copy","install"];
+	break;
     default:
-	action = "restart";
+	action = dependingEntity.type==="server"?["restart"]:["copy","install"];
 	break;
     }
     
@@ -131,14 +135,13 @@ var getDependencySubGraph = function(entities){
 	    var aux = {
 		"name": entities[entityIndex],
 		"level": modules[entities[entityIndex]].level,
-		"actions": ["install", "restart"]
+		"actions": getActionsToTake(entities[entityIndex],'none')
 	    }; 
 	    pending.push(aux);
 	    pendingNames.push(entities[entityIndex]);
 	}
     }
     
-
     //Look for dependencies and respective actions to take
     pendingIndex = pending.length-1;
     while(pending.length != 0){
@@ -149,16 +152,19 @@ var getDependencySubGraph = function(entities){
 	    resultNames.push(pendingNames[pendingIndex]);
 	}
 	
-	//Let's add its dependencies to pending array
+	//Let's add its dependencies to result array
 	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
 	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
-	    pending.push(
+
+	    if(resultNames.indexOf(dependency.name)==-1){		
+		result.push(
 		{
 		    "name": dependency.name,
 		    "level": modules[dependency.name].level,
 		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name)
 		});    
-	    pendingNames.push(dependency.name);
+		resultNames.push(dependency.name);
+	    }
 	}
 	
 	pending.splice(pendingIndex,1);
@@ -166,16 +172,82 @@ var getDependencySubGraph = function(entities){
 	pendingIndex = pending.length-1;
     
     }
-
+    
     result = result.sort(function(a,b){return a.level - b.level})
     return result;    
 }
 
-//Builds deployment execution flow
-var getExecutionFlow = function(node){
+//Replace values in installations commands
+var buildCommand = function(command,location){
+
+    command = command.replace('%production.keypath%', configDeployData.prodKeyPath);
+    command = command.replace('%production.keypath%', configDeployData.prodKeyPath);
+    command = command.replace('%location%', location);
+    return command;
+
+}
+
+var getEntityLocations = function(entity){
+    
+    switch(entity.type){
+    case 'library':
+	var locations = [];
+	
+	for(i in entity.dependencies){
+	    locations = locations.concat(modules[entity.dependencies[i].name].location);
+	}
+	
+	return locations.sort().filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
+	break;
+    default:
+	return entity.location;
+	break;
+
+    }
+
+
+}
+
+
+//Builds deployment execution flow as a hash of intructions  
+var getExecutionFlow = function(graph){
+    
+    var commands = {"copy":[],"install":[], "restart":[]};
+    
     for(index in graph){
 	node = graph[index];
-	console.log("Module "+ node.name +" is in level "+ node.level + " and the actions to take are: "+ node.actions);
+	entity = modules[node.name];
+	locations = getEntityLocations(entity);
+
+	for(location in locations){
+	    for(action in node.actions){
+		commands[node.actions[action]].push(buildCommand(entity[node.actions[action]],locations[location]));
+	    }
+	}
+    }
+    
+    return commands;
+}
+
+
+//Execue commands does the actual deployment
+//by executing bash commnads
+var executeCommands =  function(commands){
+    
+    var date = new Date();
+    //first execute copy commands
+    for(copyIndex in commands["copy"]){
+	console.log("["+date+"] Executing copy command: " + commands["copy"][copyIndex]);
+    }
+
+    //then install commands
+    for(installIndex in commands["install"]){
+	console.log("["+date+"] Executing install command: " + commands["install"][installIndex]);
+    }
+
+    //finally restart
+    for(restartIndex in commands["restart"]){
+	console.log("["+date+"] Executing restart command: " + commands["restart"][restartIndex]);
     }
 }
 
@@ -193,10 +265,10 @@ server.get('/', function(req, res){
 server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();
-    console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
+    //console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
     
     var request  = JSON.parse(req.body.payload);
-    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
+    //console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
     if(isRequestFromGitHubRepository(request, configDeployData)){
 	console.log("["+date+"] This push is from github's " + configDeployData.repositoryName + " repository");
@@ -211,10 +283,10 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 	    console.log("["+date+"] Dependency subgraph found: " + graph.map(JSON.stringify));	    
 	    
 	    try{
-		console.log("Execution flow found");
-		getExecutionFlow(graph);
+		commands = getExecutionFlow(graph);
+		executeCommands(commands);
 	    }catch(err){
-		
+		console.log(err);
 	    }
 	    
 	    console.log("["+date+"] Proccessing...");

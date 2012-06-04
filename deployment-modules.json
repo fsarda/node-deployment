@@ -4,19 +4,23 @@
 	{"name":"registration", "type":"soft"},
 	{"name":"rendering", "type":"soft"}
     ],
-    "paths":["nodejs/mail/srv", "nodejs/mail/test"],
+    "paths":["nodejs/mail/srv"],
     "level": 2,
-    "install":"script to copy and install mail",
-    "restart":"script to restart the mail server",
-    "location" : "frontend"
+    "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/mail/srv ec2-user@%location%",
+    "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/mail/srv; sudo npm install . -g;'",
+    "restart":"ssh -i %production.keypath% ec2-user@%location% 'amail restart;'",
+    "location": ["commonrpc"],
+    "type": "server"
 },
  "rendering":{       
      "dependencies": [],
      "paths":["nodejs/rendering"],
-     "level": 6,
-     "install":"script to copy and install rendering",
-     "restart":"script to restart the rendering server",
-     "location" : "frontend"
+     "level": 6,     
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/rendering ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/rendering; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'rendering restart;'",
+     "location" : ["frontend"],
+     "type": "server"
  },
  "registration":{
      "dependencies": [
@@ -27,19 +31,23 @@
      ],
      "paths":["nodejs/registration"],
      "level": 3,
-     "install":"script to copy and install registration",
-     "restart":"script to restart the registration server",
-     "location" : "commonrpc"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/registration ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/registration; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'registration restart;'",
+     "location" : ["commonrpc"],
+     "type": "server"
  },
  "geolocation":{
      "dependencies": [
 	 {"name":"rendering", "type":"soft"}     
      ],
-     "paths":["nodejs/geoloc"],
+     "paths":["nodejs/geoloc/srv"],
      "level": 2,
-     "install":"script to copy and install geolocation",
-     "restart":"script to restart the geolocation server",
-     "location" : "frontend"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/geoloc/srv ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/geoloc/srv; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'geoloc-srv restart;'",
+     "location" : ["frontend"],
+     "type": "server"
  },
  "discover":{
      "dependencies": [
@@ -47,19 +55,23 @@
      ],
      "paths":["nodejs/discover"],
      "level": 5,
-     "install":"script to copy and install discover",
-     "restart":"script to restart the discover server",
-     "location" : "commonrpc"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/discover ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/discover; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'discover restart;'",
+     "location" : ["commonrpc"],
+     "type": "server"
  },
  "social":{
      "dependencies": [
 	 {"name":"rendering", "type":"soft"}   
      ],
-     "paths":["social"],
+     "paths":["nodejs/social"],
      "level": 5,
-     "install":"script to copy and install social",
-     "restart":"script to restart the social server",
-     "location" : "commonrpc"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/social ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/social; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'social restart;'",
+     "location" : ["commonrpc"],
+     "type": "server"
  },
  "image":{
      "dependencies": [
@@ -67,11 +79,13 @@
 	 {"name":"discover", "type":"hard"},
 	 {"name":"rendering", "type":"soft"}
      ],
-    "paths":["nodejs/image"],
+     "paths":["nodejs/image"],
      "level": 4,
-     "install":"script to copy and install image",
-     "restart":"script to restart the image server",
-     "location" : "images"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/image ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/image; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'image restart;'",
+     "location" : ["image"],
+     "type": "server"
  },
  "search":{
      "dependencies": [
@@ -79,16 +93,18 @@
 	 {"name":"discover", "type":"hard"},
 	 {"name":"rendering", "type":"soft"}
      ],
-     "paths":["nodejs/search/srv", "nodejs/search/db", "nodejs/search/test"],
+     "paths":["nodejs/search/srv"],
      "level": 4,
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "frontend"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/search/srv ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/search/srv; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'search-srv restart;'",
+     "location" : ["frontend"],
+     "type": "server"
  },
  "jsonrpc_client":{
      "dependencies": [
 	 {"name":"rendering", "type":"hard"},
-	 {"name":"search-lib", "type":"hard"},
+	 {"name":"search-lib", "type":"soft"},
 	 {"name":"registration", "type":"hard"},
 	 {"name":"image", "type":"hard"},
 	 {"name":"social", "type":"hard"},
@@ -97,9 +113,11 @@
      ],
      "paths":["nodejs/common/jsonrpc_client"],
      "level": 2,
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "frontend"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/common/jsonrpc_client ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/common/jsonrpc_client; sudo npm install . -g;'",
+     "restart":"",
+     "location" : ["commonrpc","image","frontend"],
+     "type": "library"
  },
  "jsonrpc_server":{
      "dependencies": [
@@ -110,49 +128,57 @@
 	 {"name":"social", "type":"hard"},
 	 {"name":"discover", "type":"hard"},
 	 {"name":"search", "type":"hard"},
-	 {"name":"search-lib", "type":"hard"}
+	 {"name":"search-lib", "type":"soft"}
      ],
      "paths":["nodejs/common/jsonrpc_server"],
      "level": 1,
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "frontend"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/common/jsonrpc_server ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/common/jsonrpc_server; sudo npm install . -g;'",
+     "restart":"",
+     "location" : ["commonrpc","image","frontend"],
+     "type": "library"
  },
  "SHA2":{
      "dependencies": [
 	 {"name":"registration", "type":"hard"}
      ],
      "paths":["nodejs/common/SHA2"],
-     "level": 2,
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "frontend"
+     "level": 2,  
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/common/SHA2 ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/common/SHA2; sudo npm install . -g;'",
+     "restart":"",
+     "location" : ["commonrpc"],
+     "type": "library"
  },
  "utils":{
      "dependencies": [
 	 {"name":"rendering", "type":"hard"},
 	 {"name":"social", "type":"hard"},
-	 {"name":"mail-lib", "type":"hard"},
+	 {"name":"mail-lib", "type":"soft"},
 	 {"name":"geolocation", "type":"hard"},
 	 {"name":"mail", "type":"hard"},
 	 {"name":"registration", "type":"hard"},
 	 {"name":"image", "type":"hard"},
-	 {"name":"search-lib", "type":"hard"},
+	 {"name":"search-lib", "type":"soft"},
 	 {"name":"discover", "type":"hard"}
      ],
      "paths":["nodejs/common/utils"],
-     "level": 1,
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "frontend"
+     "level": 1,     
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/common/utils ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/common/utils; sudo npm install . -g;'",
+     "restart":"",
+     "location" : [],
+     "type": "library"
  },
  "deployment":{
      "dependencies": [],
      "level": 6,
      "paths":["nodejs/deployment"],
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "development"
+     "copy": "",
+     "install":"cd ~/Agrosica/nodejs/common/deployment; sudo npm install . -g;",
+     "restart":"deployment start",
+     "location" : ["development"],
+     "type": "server"
  },
  "search-lib":{
      "dependencies": [
@@ -160,10 +186,12 @@
 	 {"name":"social", "type":"hard"}
      ],
      "level": 3,
-     "paths":["nodejs/search/lib"],
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "development"
+     "paths":["nodejs/search/lib"], 
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/search/lib ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/search/lib; sudo npm install . -g;'",
+     "restart":"",
+     "location" : [],
+     "type": "library"
  },
  "mail-lib":{
      "dependencies": [
@@ -172,8 +200,34 @@
      ],
      "level": 2,
      "paths":["nodejs/mail/lib"],
-     "install":"script to copy and install search",
-     "restart":"script to restart the search server",
-     "location" : "development"
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/mail/lib ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% ' cd ~/Agrosica/nodejs/mail/lib; sudo npm install . -g;'",
+     "restart":"",     
+     "location" : ["commonrpc","frontend"],
+     "type": "library"
+ },
+ "geolocation-db":{
+     "dependencies": [
+	 {"name":"geolocation", "type":"hard"}
+     ],
+     "level": 1,
+     "paths":["nodejs/geoloc/db"],
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/geoloc/db ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/geoloc/db; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'geoloc-db restart;'",     
+     "location" : ["solr"],
+     "type": "server"
+ },
+ "search-db":{
+     "dependencies": [
+	 {"name":"search", "type":"hard"}
+     ],
+     "level": 1,
+     "paths":["nodejs/search/db"],
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/search/db ec2-user@%location%",
+     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/search/db; sudo npm install . -g;'",
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'search-db restart;'",     
+     "location" : ["solr"],
+     "type": "server"
  }
 }
