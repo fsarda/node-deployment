@@ -1,5 +1,12 @@
 {
 "repositoryName": "Agrosica",
 "productionBranch" : "production",
-"authorizedCommitUsers": ["dfellis", "fsarda"]
+"authorizedCommitUsers": ["dfellis", "fsarda"],
+"scriptPath": "./scripts/",
+"productionServerPath": "~/Agrosica/",
+"prodKeyPath": "/home/ec2-user/keys/Production.pem",
+"devKeyPath": "/home/ec2-user/keys/Deployment.pem",
+"updateRepoAction": "cd ~/Agrosica; git pull origin production; cd -;",
+"testMode": true
 }
+
