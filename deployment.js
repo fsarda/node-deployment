@@ -235,19 +235,23 @@ var getExecutionFlow = function(graph){
 var executeCommands =  function(commands){
     
     var date = new Date();
+    
+    //pull changes
+    console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
+
     //first execute copy commands
     for(copyIndex in commands["copy"]){
-	console.log("["+date+"] Executing copy command: " + commands["copy"][copyIndex]);
+	console.log("\n["+date+"] Executing copy command: " + commands["copy"][copyIndex]);
     }
 
     //then install commands
     for(installIndex in commands["install"]){
-	console.log("["+date+"] Executing install command: " + commands["install"][installIndex]);
+	console.log("\n["+date+"] Executing install command: " + commands["install"][installIndex]);
     }
 
     //finally restart
     for(restartIndex in commands["restart"]){
-	console.log("["+date+"] Executing restart command: " + commands["restart"][restartIndex]);
+	console.log("\n["+date+"] Executing restart command: " + commands["restart"][restartIndex]);
     }
 }
 
@@ -265,10 +269,10 @@ server.get('/', function(req, res){
 server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();
-    //console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
+    console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
     
     var request  = JSON.parse(req.body.payload);
-    //console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
+    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
     if(isRequestFromGitHubRepository(request, configDeployData)){
 	console.log("["+date+"] This push is from github's " + configDeployData.repositoryName + " repository");
