@@ -5,6 +5,8 @@
 var express = require('express');
 var path = require('path');
 var fs = require('fs');
+var async = require('async');
+var child = require('child_process');
 
 // Load configuration files
 var config = JSON.parse(fs.readFileSync(path.join(__dirname + "/config.json"), "utf8"));
@@ -230,29 +232,80 @@ var getExecutionFlow = function(graph){
 }
 
 
+var print = function(error, stdout, stderr){
+    //console.log(stdout);
+    //console.log(error+" "+stderr);
+    console.log("Callback called!!!");
+}
+
+
+var simpleExec = function(command){
+    var n = child.exec(command, print);    
+    console.log("Starting process "+JSON.stringify(n.pid)+" "+command);
+    
+}
+
+var fork = function(command){
+
+    var process = child.fork(__dirname+"/deploymentChild.js");
+
+    process.on('message', function(message){
+	console.log("Ending process ["+process.pid+"] "+command+" with code " + message.code);
+	process.kill('SIGTERM');
+	return true;
+    });
+    
+    process.send({"command": command});
+    
+}
+
+
 //Execue commands does the actual deployment
 //by executing bash commnads
 var executeCommands =  function(commands){
     
     var date = new Date();
     
-    //pull changes
     console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
+    child.exec(configDeployData.updateRepoAction, function(error, stdout, stderr){
+	console.log(stdout);
+	
+	if(error != null){
+	    console.log("Aborting process. Repository pull was not successfully executed");
+	}else{
+	    console.log("\n["+date+"] Executing install commands ");
+	    //async.parallel(commands["copy"].map(fork), function(){
+	    async.parallel([function(){console.log("hola")},function(){console.log("chao")}], function(){
+		console.log("\n["+date+"] Executing restart commands ");
+	    });   
+	}
+
+    })
+
+    //pull changes
+/*
+    console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
+    async.series([simpleExec(configDeployData.updateRepoAction, print),
+		  console.log("Starting install..."),
+		  async.parallel(commands["copy"].map(simpleExec))]);
+		  */
 
     //first execute copy commands
-    for(copyIndex in commands["copy"]){
-	console.log("\n["+date+"] Executing copy command: " + commands["copy"][copyIndex]);
-    }
-
+    /*async.series([commands["copy"].map(fork)],
+		 function(err, results){
+		     console.log("AAAAAAAAAAAAAA" + err + " " + results);
+		     });
+		     */
+    
     //then install commands
-    for(installIndex in commands["install"]){
+/*    for(installIndex in commands["install"]){
 	console.log("\n["+date+"] Executing install command: " + commands["install"][installIndex]);
     }
 
     //finally restart
     for(restartIndex in commands["restart"]){
 	console.log("\n["+date+"] Executing restart command: " + commands["restart"][restartIndex]);
-    }
+    }*/
 }
 
 
@@ -290,7 +343,7 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 		commands = getExecutionFlow(graph);
 		executeCommands(commands);
 	    }catch(err){
-		console.log(err);
+		console.log("An error has occurred --->"+err);
 	    }
 	    
 	    console.log("["+date+"] Proccessing...");
@@ -313,4 +366,17 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
+
+/*
+var print = function(callback, string){
+    setTimeout(function(){
+        callback(null, string);
+    }, 200);
+}
+async.parallel([print(console.log,'hola1'),
+		print(console.log,'hola2'),
+		print(console.log,'hola3'),
+		print(console.log,'hola4')], function(err, result){});
+		*/
+
 console.log('Deployment server running on port "' + config.rpc.port);
