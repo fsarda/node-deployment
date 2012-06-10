@@ -274,8 +274,7 @@ var executeCommands =  function(commands){
 	    console.log("Aborting process. Repository pull was not successfully executed");
 	}else{
 	    console.log("\n["+date+"] Executing install commands ");
-	    //async.parallel(commands["copy"].map(fork), function(){
-	    async.parallel([function(){console.log("hola")},function(){console.log("chao")}], function(){
+	    async.parallel(commands["copy"].map(fork), function(){
 		console.log("\n["+date+"] Executing restart commands ");
 	    });   
 	}
