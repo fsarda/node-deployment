@@ -7,6 +7,9 @@
 "prodKeyPath": "/home/ec2-user/keys/Production.pem",
 "devKeyPath": "/home/ec2-user/keys/Deployment.pem",
 "updateRepoAction": "cd ~/agrosica/portal/Agrosica; git checkout master; git pull origin master; cd -;",
-"testMode": true
+"testMode": true,
+"execChildFile": "deploymentChild.js",
+"numberOfRetry": 3,
+"timeout": 30
 }
 
