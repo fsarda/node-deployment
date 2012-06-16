@@ -1,16 +1,12 @@
 var childl = require('child_process');
+var date = new Date();
 
 process.on('message', function(m) {
-    console.log("Executing child process with command " + m.command)
-    childl.exec(m.command , sendToParent);
+    console.log("\n["+date+"] Executing child process with command " + m.command)
+    childl.exec(m.command , m.options, sendToParent);
 });
 
 
 function sendToParent(error, stdout, stderr){
-    if (error !== null) {
-	process.send({ code: 1 });
-    }else{
-	process.send({ code: 0 });
-    }
-    
+    process.send({ "code":null , "stdout": stdout, "stderr": stderr });    
 }

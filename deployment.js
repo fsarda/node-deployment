@@ -15,6 +15,10 @@ var servers = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-serv
 var configDeployData = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
 var server = express.createServer();
 
+//global variables
+var pendingServerRestarts = []; 
+var pendingRetryExecutions = [];
+
 //Setting up server configuration
 server.configure(function(){
     server.set('views', __dirname + '/views');
@@ -31,7 +35,6 @@ server.configure(function(){
 var isRequestFromGitHubRepository = function(request, configData){
     return request.repository!=undefined && configData.repositoryName.toUpperCase() === request.repository.name.toUpperCase();
 }
-
 
 //Verifies conditions for running automated deployment
 var isAuthorizedProductionChange = function(request, configData){
@@ -172,7 +175,6 @@ var getDependencySubGraph = function(entities){
 	pending.splice(pendingIndex,1);
 	pendingNames.splice(pendingIndex,1);
 	pendingIndex = pending.length-1;
-    
     }
     
     result = result.sort(function(a,b){return a.level - b.level})
@@ -189,8 +191,8 @@ var buildCommand = function(command,location){
 
 }
 
-var getEntityLocations = function(entity){
-    
+//Get entities location list
+var getEntityLocations = function(entity){    
     switch(entity.type){
     case 'library':
 	var locations = [];
@@ -206,8 +208,6 @@ var getEntityLocations = function(entity){
 	break;
 
     }
-
-
 }
 
 
@@ -232,32 +232,45 @@ var getExecutionFlow = function(graph){
 }
 
 
-var print = function(error, stdout, stderr){
-    //console.log(stdout);
-    //console.log(error+" "+stderr);
-    console.log("Callback called!!!");
-}
 
 
-var simpleExec = function(command){
-    var n = child.exec(command, print);    
-    console.log("Starting process "+JSON.stringify(n.pid)+" "+command);
+//Execute a sh command with a fork
+var fork = function(command, callback){
+    var date = new Date();
+    var execOptions = {timeout: configDeployData.timeout, killSignal: 'SIGTERM'};
     
-}
-
-var fork = function(command){
-
-    var process = child.fork(__dirname+"/deploymentChild.js");
-
+    var process = child.fork(__dirname+"/"+configDeployData.execChildFile);    
     process.on('message', function(message){
-	console.log("Ending process ["+process.pid+"] "+command+" with code " + message.code);
-	process.kill('SIGTERM');
-	return true;
+	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + message.code +"\nOUTPUT: "+message.stdout +"\nERROR: "+message.stderr);
+	return callback(message.code,message.stdout,message.stderr);
     });
     
-    process.send({"command": command});
+    process.send({"command": command, "options": execOptions});
     
 }
+
+
+//Executes several bash intructions in parallel
+var forkParallel = function(commands,successMessage,successCallback,failureCallback,callback){
+    var date = new Date();
+    async.forEach(commands, fork
+		  ,function(err) {
+		      if(err !=null){
+			  console.log("\n["+date+"] An error has occurred " + err);
+			  if(failureCallback != undefined){
+			      failureCallback();
+			  }
+		      }else{
+			  console.log("\n["+date+"] "+successMessage); 	
+			  if(successCallback != undefined){
+			      successCallback();
+			  }
+		      }
+		      
+		      callback(err);
+		  });
+}
+
 
 
 //Execue commands does the actual deployment
@@ -265,46 +278,28 @@ var fork = function(command){
 var executeCommands =  function(commands){
     
     var date = new Date();
+    var executionState = true;
     
     console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
-    child.exec(configDeployData.updateRepoAction, function(error, stdout, stderr){
-	console.log(stdout);
+    
+    //console.log(commands["install"].map(function(command){ return simpleExec.bind(this,command)}));
+    async.series([
 	
-	if(error != null){
-	    console.log("Aborting process. Repository pull was not successfully executed");
-	}else{
-	    console.log("\n["+date+"] Executing install commands ");
-	    async.parallel(commands["copy"].map(fork), function(){
-		console.log("\n["+date+"] Executing restart commands ");
-	    });   
-	}
+	//Execute repo pull
+	fork.bind(this,configDeployData.updateRepoAction),
+	
+	//Execute copy commands
+	forkParallel.bind(this,commands["copy"],"Executed copy instructions sucessfully",undefined,undefined),
 
-    })
+	//Execute install commands
+	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully",undefined,undefined),
 
-    //pull changes
-/*
-    console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
-    async.series([simpleExec(configDeployData.updateRepoAction, print),
-		  console.log("Starting install..."),
-		  async.parallel(commands["copy"].map(simpleExec))]);
-		  */
+	//Execute restart commands
+	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution",undefined,undefined)
 
-    //first execute copy commands
-    /*async.series([commands["copy"].map(fork)],
-		 function(err, results){
-		     console.log("AAAAAAAAAAAAAA" + err + " " + results);
-		     });
-		     */
-    
-    //then install commands
-/*    for(installIndex in commands["install"]){
-	console.log("\n["+date+"] Executing install command: " + commands["install"][installIndex]);
-    }
-
-    //finally restart
-    for(restartIndex in commands["restart"]){
-	console.log("\n["+date+"] Executing restart command: " + commands["restart"][restartIndex]);
-    }*/
+    ], function(err, results){
+	console.log("\n["+date+"] All instructions ended execution " + results.length + " \nERROR "+err); 
+    });
 }
 
 
@@ -365,17 +360,4 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
-
-/*
-var print = function(callback, string){
-    setTimeout(function(){
-        callback(null, string);
-    }, 200);
-}
-async.parallel([print(console.log,'hola1'),
-		print(console.log,'hola2'),
-		print(console.log,'hola3'),
-		print(console.log,'hola4')], function(err, result){});
-		*/
-
 console.log('Deployment server running on port "' + config.rpc.port);
