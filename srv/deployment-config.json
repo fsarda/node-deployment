@@ -10,6 +10,6 @@
 "testMode": true,
 "execChildFile": "deploymentChild.js",
 "numberOfRetry": 3,
-"timeout": 30
+"timeout": 0
 }
 

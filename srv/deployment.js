@@ -18,14 +18,12 @@ var server = express.createServer();
 //global variables
 var pendingServerRestarts = []; 
 var pendingRetryExecutions = [];
+var retryCount = 0;
 
 //Setting up server configuration
 server.configure(function(){
-    server.set('views', __dirname + '/views');
-    server.set('view engine', 'html');
     server.use(express.favicon());
     server.use(express.logger('dev'));
-    server.use(express.static(__dirname + '/public'));
     server.use(express.methodOverride());
     server.use(server.router);
     
@@ -121,7 +119,7 @@ var getActionsToTake = function(dependency, entity){
     return action;
 }
 
-
+//Search for dependency subgraph for changed entities
 var getDependencySubGraph = function(entities){
     
     var result = [];
@@ -185,7 +183,7 @@ var getDependencySubGraph = function(entities){
 var buildCommand = function(command,location){
 
     command = command.replace('%production.keypath%', configDeployData.prodKeyPath);
-    command = command.replace('%production.keypath%', configDeployData.prodKeyPath);
+    command = command.replace('%development.keypath%', configDeployData.prodKeyPath);
     command = command.replace('%location%', location);
     return command;
 
@@ -232,42 +230,65 @@ var getExecutionFlow = function(graph){
 }
 
 
+var saveRestartedEntities = function(entities){
+    pendingServerRestarts = entities;
+}
 
+var saveRetryCommand = function(command){
+    pendingRetryExecutions.push(command);
+}
 
-//Execute a sh command with a fork
+var initValues = function(){
+    pendingRetryExecutions = [];
+    pendingServerRestarts = [];
+    retryCount = 0;
+
+}
+
+//Execute a bash command with a fork
 var fork = function(command, callback){
     var date = new Date();
     var execOptions = {timeout: configDeployData.timeout, killSignal: 'SIGTERM'};
     
     var process = child.fork(__dirname+"/"+configDeployData.execChildFile);    
     process.on('message', function(message){
-	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + message.code +"\nOUTPUT: "+message.stdout +"\nERROR: "+message.stderr);
-	return callback(message.code,message.stdout,message.stderr);
+	
+	if(message.code != null){
+	    saveRetryCommand(command);
+	}
+	
+	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message.code) +"\nCommand output: "+message.stdout +"\nCommand error: "+message.stderr);
+	process.kill('SIGTERM');
+
+	return callback();
     });
-    
+
+    process.on("SIGTERM", function() {
+	process.exit();
+    });    
+
     process.send({"command": command, "options": execOptions});
     
 }
 
-
-//Executes several bash intructions in parallel
+//Executes several bash commands in parallel
 var forkParallel = function(commands,successMessage,successCallback,failureCallback,callback){
     var date = new Date();
     async.forEach(commands, fork
 		  ,function(err) {
 		      if(err !=null){
-			  console.log("\n["+date+"] An error has occurred " + err);
+			  console.log("\n["+date+"] An error has occurred " + JSON.stringify(err));
 			  if(failureCallback != undefined){
-			      failureCallback();
+			      failureCallback(commands);
 			  }
 		      }else{
 			  console.log("\n["+date+"] "+successMessage); 	
 			  if(successCallback != undefined){
-			      successCallback();
+			      successCallback(commands);
 			  }
 		      }
 		      
-		      callback(err);
+		      callback();
 		  });
 }
 
@@ -281,6 +302,12 @@ var executeCommands =  function(commands){
     var executionState = true;
     
     console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
+
+    commands = {
+	"copy": ["ls -lash", "df -h"],
+	"install": ["ls color", "du -h"],
+	"restart": ["echo holaaaaaaa'", "mkdir prueba"]
+    };
     
     //console.log(commands["install"].map(function(command){ return simpleExec.bind(this,command)}));
     async.series([
@@ -295,11 +322,16 @@ var executeCommands =  function(commands){
 	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully",undefined,undefined),
 
 	//Execute restart commands
-	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution",undefined,undefined)
+	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution",saveRestartedEntities,undefined)
 
     ], function(err, results){
-	console.log("\n["+date+"] All instructions ended execution " + results.length + " \nERROR "+err); 
+	if(err == null){
+	    console.log("\n["+date+"] All instructions ended execution"); 
+	}else{
+	    console.log("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
+	}
     });
+
 }
 
 
