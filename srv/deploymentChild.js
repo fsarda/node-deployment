@@ -8,5 +8,5 @@ process.on('message', function(m) {
 
 
 function sendToParent(error, stdout, stderr){
-    process.send({ "code":null , "stdout": stdout, "stderr": stderr });    
+    process.send({ "code":error , "stdout": stdout, "stderr": stderr });    
 }

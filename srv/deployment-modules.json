@@ -171,14 +171,33 @@
      "type": "library"
  },
  "deployment":{
-     "dependencies": [],
+     "dependencies": [ ],
      "level": 6,
-     "paths":["nodejs/deployment"],
+     "paths":["nodejs/deployment/srv"],
      "copy": "",
-     "install":"cd ~/Agrosica/nodejs/common/deployment; sudo npm install . -g;",
+     "install":"cd ~/Agrosica/nodejs/deployment/srv; sudo npm install . -g;",
      "restart":"deployment start",
      "location" : ["development"],
      "type": "server"
+ },
+ "deployment-lib":{
+     "dependencies": [
+	 {"name":"rendering", "type":"hard"},
+	 {"name":"social", "type":"hard"},
+	 {"name":"mail", "type":"soft"},
+	 {"name":"geolocation", "type":"hard"},
+	 {"name":"image", "type":"hard"},
+	 {"name":"registration", "type":"hard"},
+	 {"name":"search", "type":"hard"},
+	 {"name":"discover", "type":"hard"}
+     ],
+     "level": 1,
+     "paths":["nodejs/deployment/lib"],
+     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/deployment/lib ec2-user@%location%",
+     "install":"cd ~/Agrosica/nodejs/deployment/lib; sudo npm install . -g;",
+     "restart":"",
+     "location" : [],
+     "type": "library"
  },
  "search-lib":{
      "dependencies": [
