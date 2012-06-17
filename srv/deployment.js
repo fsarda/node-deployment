@@ -102,17 +102,34 @@ var getActionsToTake = function(dependency, entity){
     var action = "";
     var dependingEntity = modules[dependency];
     
+
     switch(type){
     case "hard":
-	action = dependingEntity.type==="server"?["restart"]:["copy","install"];
+	if(dependingEntity.type==="server"){
+	    action = ["restart"];
+	    pendingServerRestarts.push(dependency);
+	}else{
+	    action = ["copy","install"];
+	}	
 	break;
     case "soft":
 	break;
     case "initial":
-	action = dependingEntity.type==="server"?["copy","install","restart"]:["copy","install"];
+	if(dependingEntity.type==="server"){
+	    action = ["copy","install","restart"];
+	    pendingServerRestarts.push(dependency);
+	}else{
+	    action = ["copy","install"];
+	}
 	break;
     default:
-	action = dependingEntity.type==="server"?["restart"]:["copy","install"];
+	if(dependingEntity.type==="server"){
+	    action = ["restart"];
+	    pendingServerRestarts.push(dependency);
+	}else{
+	    action = ["copy","install"];
+	}
+
 	break;
     }
     
@@ -230,10 +247,6 @@ var getExecutionFlow = function(graph){
 }
 
 
-var saveRestartedEntities = function(entities){
-    pendingServerRestarts = entities;
-}
-
 var saveRetryCommand = function(command){
     pendingRetryExecutions.push(command);
 }
@@ -251,16 +264,17 @@ var fork = function(command, callback){
     var execOptions = {timeout: configDeployData.timeout, killSignal: 'SIGTERM'};
     
     var process = child.fork(__dirname+"/"+configDeployData.execChildFile);    
+    
     process.on('message', function(message){
 	
 	if(message.code != null){
 	    saveRetryCommand(command);
 	}
 	
-	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message.code) +"\nCommand output: "+message.stdout +"\nCommand error: "+message.stderr);
+	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
 	process.kill('SIGTERM');
 
-	return callback();
+	callback();
     });
 
     process.on("SIGTERM", function() {
@@ -268,27 +282,22 @@ var fork = function(command, callback){
     });    
 
     process.send({"command": command, "options": execOptions});
-    
+    	
 }
 
 //Executes several bash commands in parallel
-var forkParallel = function(commands,successMessage,successCallback,failureCallback,callback){
+var forkParallel = function(commands,successMessage,callback){
     var date = new Date();
     async.forEach(commands, fork
 		  ,function(err) {
-		      if(err !=null){
-			  console.log("\n["+date+"] An error has occurred " + JSON.stringify(err));
-			  if(failureCallback != undefined){
-			      failureCallback(commands);
-			  }
+		      if(err != null && err.code !=null){
+			  console.log("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
+			  callback(err);
 		      }else{
 			  console.log("\n["+date+"] "+successMessage); 	
-			  if(successCallback != undefined){
-			      successCallback(commands);
-			  }
+			  callback();
 		      }
 		      
-		      callback();
 		  });
 }
 
@@ -300,32 +309,38 @@ var executeCommands =  function(commands){
     
     var date = new Date();
     var executionState = true;
-    
-    console.log("\n["+date+"] Pull changes " + configDeployData.updateRepoAction);
+    pendingRetryExecutions = [];
 
-    commands = {
+    commands["updateRepo"] = configDeployData.updateRepoAction;
+    /*commands = {
+	"updateRepo": configDeployData.updateRepoAction,
 	"copy": ["ls -lash", "df -h"],
-	"install": ["ls color", "du -h"],
+	"install": ["ls -color", "rmdir prueba"],
 	"restart": ["echo holaaaaaaa'", "mkdir prueba"]
-    };
+    };*/
     
     //console.log(commands["install"].map(function(command){ return simpleExec.bind(this,command)}));
     async.series([
 	
 	//Execute repo pull
-	fork.bind(this,configDeployData.updateRepoAction),
-	
+	fork.bind(this,commands["updateRepo"]),
+	//fork.bind(this,"ls -R"),
+
 	//Execute copy commands
-	forkParallel.bind(this,commands["copy"],"Executed copy instructions sucessfully",undefined,undefined),
+	forkParallel.bind(this,commands["copy"],"Executed copy instructions sucessfully"),
 
 	//Execute install commands
-	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully",undefined,undefined),
+	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully"),
 
 	//Execute restart commands
-	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution",saveRestartedEntities,undefined)
+	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution")
 
+	
     ], function(err, results){
-	if(err == null){
+	
+	console.log("\n["+date+"] RESULTS " +results);
+
+	if(err == null || err.code == null){
 	    console.log("\n["+date+"] All instructions ended execution"); 
 	}else{
 	    console.log("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
@@ -339,6 +354,31 @@ var executeCommands =  function(commands){
 server.get('/', function(req, res){
     res.send("Gettint request "+ req.body);
 });
+
+
+//Setting up controller for POST on /message
+server.post('/message' ,express.bodyParser(),function(request, response){
+    
+    var date = new Date();
+    console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
+
+    if(request.body.messageType = "restart"){
+	index = pendingServerRestarts.indexOf(request.body.entityName);
+	if(index!=-1){
+	    pendingServerRestarts.splice(index, 1);
+	}
+    }
+
+    console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
+    
+    //Process message
+    response.send("Got message request from "+request.body.entityName);
+}, function(err, request, response, next) { 
+    console.log("An error has occurred processing the message..." + err);
+    response.send("An error has occurred processing the message..." + err);
+});
+
+
 
 //Setting up controller on '/deployment' url post
 
@@ -365,12 +405,9 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 	    graph = getDependencySubGraph(servers);
 	    console.log("["+date+"] Dependency subgraph found: " + graph.map(JSON.stringify));	    
 	    
-	    try{
-		commands = getExecutionFlow(graph);
-		executeCommands(commands);
-	    }catch(err){
-		console.log("An error has occurred --->"+err);
-	    }
+	    commands = getExecutionFlow(graph);
+	    
+	    executeCommands(commands);
 	    
 	    console.log("["+date+"] Proccessing...");
 	    res.send("Proccessing...\n");
