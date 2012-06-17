@@ -1,0 +1,11 @@
+{
+	"contributors": [
+		{"name": "David Ellis", "email": "david.ellis@agrosica.com"},
+		{"name": "Francelice Sarda", "email": "francelice.sarda@agrosica.com"}
+	],
+	"name": "agro-deploy",
+	"version": "0.1.0",
+	"description": "Messages interface to deployment server",
+	"main": "deployment-lib.js",
+	"private": true
+}

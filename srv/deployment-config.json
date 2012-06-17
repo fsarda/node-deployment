@@ -9,7 +9,7 @@
 "updateRepoAction": "cd ~/agrosica/portal/Agrosica; git checkout master; git pull origin master; cd -;",
 "testMode": true,
 "execChildFile": "deploymentChild.js",
-"numberOfRetry": 3,
+"retryCount": 3,
 "timeout": 0
 }
 
