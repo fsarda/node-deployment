@@ -7,18 +7,18 @@ var path = require('path');
 var fs = require('fs');
 var async = require('async');
 var child = require('child_process');
+var aws = require('aws-lib');
 
 // Load configuration files
 var config = JSON.parse(fs.readFileSync(path.join(__dirname + "/config.json"), "utf8"));
 var modules = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-modules.json"), "utf8"));
-var servers = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-servers.json"), "utf8"));
-var configDeployData = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
 var server = express.createServer();
 
 //global variables
 var pendingServerRestarts = []; 
 var pendingRetryExecutions = [];
 var retryCount = 0;
+var sesClient = aws.createSESClient(config.SES.key, config.SES.secret);
 
 //Setting up server configuration
 server.configure(function(){
@@ -28,6 +28,82 @@ server.configure(function(){
     server.use(server.router);
     
 });
+
+
+//Send report email
+var sendReportEmail = function(message, errors, entities, instructions, pushjson, callback){
+
+    var textBody ="A production deployment has been executed with the following characteristics: \n"+
+	"Pushed by: " + pushjson.pusher.name+"\n"+
+	"Commit id: " + pushjson.head_commit.id+"\n"+
+	"Modified entities: " + entities+"\n\n";
+
+    if(instructions.length!=0){
+	textBody += "Instructions to execute: \n\n";
+	
+	for(i in instructions){
+	    textBody += i+" instructions:\n";
+	    for(j in instructions[i]){
+		textBody += "- "+instructions[i][j]+"\n";
+	    }
+	}
+	
+    }
+    
+    textBody += "\n\nReport Message: " +message+"\n";
+    textBody += "\n\nError message: " +errors+"\n";
+    textBody += "\n\nFailed Instructions: " +pendingRetryExecutions+"\n";
+    textBody += "\n\nServers not restarted: " +pendingServerRestarts+"\n";
+	
+
+    var htmlBody ="A production deployment has been executed with the following characteristics: <br/> "+
+	"<span style='font-weight: bold; text-decoration: underline;'>Pushed by:</span> <a href='https://github.com/"+pushjson.pusher.name+"'>" + pushjson.pusher.name+"</a><br/>"+
+	"<span style='font-weight: bold; text-decoration: underline;'>Commit id:</span> <a href='https://github.com/jsalcedo/Agrosica/commit/"+pushjson.head_commit.id+"'>" + pushjson.head_commit.id+"</a><br/>"+
+	"<span style='font-weight: bold; text-decoration: underline;'>Modified entities:</span>" + entities+"<br/><br/>";
+
+    if(instructions.length!=0){
+	htmlBody += "<span style='font-weight: bold; text-decoration: underline;'>Instructions to execute:</span><br/><br/>";
+	
+	for(i in instructions){
+	    htmlBody += "<span style='text-decoration: underline;'>"+i+" instructions:</span><br/>";
+	    for(j in instructions[i]){
+		htmlBody += "- "+instructions[i][j]+"<br/>";
+	    }
+	}
+    }
+    
+    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Report Message:</span>" +message+"<br/>";
+    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Error message:</span>" +errors+"<br/>";
+    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Failed Insructions:</span>" +pendingRetryExecutions+"<br/>";
+    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServerRestarts+"<br/>";
+    
+
+    //console.log(textBody);
+    //console.log(htmlBody);
+	
+    var sendArgs = {
+	'Destination.ToAddresses.member.1': config.deployEmail[0],
+	'ReplyToAddresses.member.1': config.deployEmail[1],
+	'Message.Body.Text.Charset': 'UTF-8',
+	'Message.Body.Text.Data': textBody,
+	'Message.Body.Html.Charset': 'UTF-8',
+	'Message.Body.Html.Data': htmlBody,
+	'Message.Subject.Charset': 'UTF-8',
+	'Message.Subject.Data': 'Agrosica automatic deployment executed',
+	'Source': config.sourceEmail
+    };
+    
+    /*return sesClient.call('SendEmail', sendArgs, function(result) {
+	if(result.Error) {
+	    console.log(result);
+	    return callback(new Error("There was an error sending the report email"));
+	}
+	return callback({success: true});
+    });*/
+
+    return callback({success: true});
+};
+
 
 //Verifies if the request comes from  github
 var isRequestFromGitHubRepository = function(request, configData){
@@ -199,8 +275,8 @@ var getDependencySubGraph = function(entities){
 //Replace values in installations commands
 var buildCommand = function(command,location){
 
-    command = command.replace('%production.keypath%', configDeployData.prodKeyPath);
-    command = command.replace('%development.keypath%', configDeployData.prodKeyPath);
+    command = command.replace('%production.keypath%', config.prodKeyPath);
+    command = command.replace('%development.keypath%', config.prodKeyPath);
     command = command.replace('%location%', location);
     return command;
 
@@ -228,8 +304,8 @@ var getEntityLocations = function(entity){
 
 //Builds deployment execution flow as a hash of intructions  
 var getExecutionFlow = function(graph){
-    
-    var commands = {"copy":[],"install":[], "restart":[]};
+
+    var commands = {"updateRepo":[config.updateRepoAction], "copy":[],"install":[], "restart":[]};
     
     for(index in graph){
 	node = graph[index];
@@ -255,15 +331,14 @@ var initValues = function(){
     pendingRetryExecutions = [];
     pendingServerRestarts = [];
     retryCount = 0;
-
 }
 
 //Execute a bash command with a fork
 var fork = function(command, callback){
     var date = new Date();
-    var execOptions = {timeout: configDeployData.timeout, killSignal: 'SIGTERM'};
+    var execOptions = {timeout: config.timeout, killSignal: 'SIGTERM'};
     
-    var process = child.fork(__dirname+"/"+configDeployData.execChildFile);    
+    var process = child.fork(__dirname+"/"+config.execChildFile);    
     
     process.on('message', function(message){
 	
@@ -291,40 +366,42 @@ var forkParallel = function(commands,successMessage,callback){
     async.forEach(commands, fork
 		  ,function(err) {
 		      if(err != null && err.code !=null){
-			  console.log("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
+			  console.error("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
 			  callback(err);
 		      }else{
 			  console.log("\n["+date+"] "+successMessage); 	
-			  callback();
-		      }
-		      
+			  callback(null);
+		      }		      
 		  });
 }
 
 
+//This function makes deployment server wait a little
+//for servers to restart
+var waitRestarts = function(callback){
 
-//Execue commands does the actual deployment
+    var date = new Date();
+    console.log("\n["+date+"] Waiting for servers to restart with a "+config.restartTimeout+" milliseconds timeout"); 
+    setTimeout(
+	function(){
+	    console.log("\n["+date+"] Already waited for servers"); 
+	    callback();
+	}
+	,config.restartTimeout);	    
+}
+
+
+//Execute commands does the actual deployment
 //by executing bash commnads
-var executeCommands =  function(commands){
+var executeCommands = function(commands, callback){
     
     var date = new Date();
-    var executionState = true;
-    pendingRetryExecutions = [];
-
-    commands["updateRepo"] = configDeployData.updateRepoAction;
-    /*commands = {
-	"updateRepo": configDeployData.updateRepoAction,
-	"copy": ["ls -lash", "df -h"],
-	"install": ["ls -color", "rmdir prueba"],
-	"restart": ["echo holaaaaaaa'", "mkdir prueba"]
-    };*/
-    
+        
     //console.log(commands["install"].map(function(command){ return simpleExec.bind(this,command)}));
     async.series([
 	
 	//Execute repo pull
-	fork.bind(this,commands["updateRepo"]),
-	//fork.bind(this,"ls -R"),
+	fork.bind(this,commands["updateRepo"][0]),
 
 	//Execute copy commands
 	forkParallel.bind(this,commands["copy"],"Executed copy instructions sucessfully"),
@@ -333,20 +410,47 @@ var executeCommands =  function(commands){
 	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully"),
 
 	//Execute restart commands
-	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution")
+	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution"),
 
-	
-    ], function(err, results){
-	
-	console.log("\n["+date+"] RESULTS " +results);
+	//Wait some time for servers to restart
+	waitRestarts.bind(this)
 
+		
+    ],function(err, results){
+	
 	if(err == null || err.code == null){
+	    console.log("\n["+date+"] Pending instructions to execute " + pendingRetryExecutions);
 	    console.log("\n["+date+"] All instructions ended execution"); 
+	    callback(null);
+	    return pendingRetryExecutions!=0;
+	    
 	}else{
-	    console.log("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
+	    callback(err);
+	    console.error("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
+	    return false;
 	}
     });
 
+}
+
+
+//This function executes deployment instructions verifying
+//if we have to retry deployment
+var executeCommandsRetrying =  function(commands, callback){
+    
+    var date = new Date();
+    pendingRetryExecutions = [];
+
+    if(retryCount < config.retryCount && pendingServerRestarts.length!=0){
+	retryCount++;
+	console.log("Starting retry number " + retryCount);
+	var res = tryToExecute(commands,callback);
+	return executeCommands(commands,callback);
+    }else{
+	console.log("Finished retrying");
+	return callback();
+    }
+    
 }
 
 
@@ -388,15 +492,13 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();
-    console.log("["+date+"] Arriving request "+JSON.stringify(req.body)+"\n");
-    
     var request  = JSON.parse(req.body.payload);
     console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
-    if(isRequestFromGitHubRepository(request, configDeployData)){
-	console.log("["+date+"] This push is from github's " + configDeployData.repositoryName + " repository");
+    if(isRequestFromGitHubRepository(request, config)){
+	console.log("["+date+"] This push is from github's " + config.repositoryName + " repository");
 
-	if(isAuthorizedProductionChange(request, configDeployData)){	    
+	if(isAuthorizedProductionChange(request, config)){	    
 	    console.log("["+date+"] This is an authorized production branch push");
 	    
 	    servers = getModifiedEntities(request);
@@ -406,24 +508,41 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 	    console.log("["+date+"] Dependency subgraph found: " + graph.map(JSON.stringify));	    
 	    
 	    commands = getExecutionFlow(graph);
+	    async.series([
+		
+		//Perform deployment execution
+		executeCommands.bind(this,commands),
+			
+		//Send email notification with deployment report
+		sendReportEmail.bind(this, " ", pendingRetryExecutions, servers, commands, request),
+	
+		//Initialize server global variables
+		initValues.bind(this)
 	    
-	    executeCommands(commands);
+	    ], function(err, results){
+		if(err == null || err.code == null){
+		    console.log("\n["+date+"] Deployment finished and report notification sent"); 
+		}else{
+		    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
+		}
+	    });
+	    
 	    
 	    console.log("["+date+"] Proccessing...");
 	    res.send("Proccessing...\n");
 	    
 	}else{
-	    console.log("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request));	    
-	    res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request));	    
+	    console.error("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
+	    res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
 	}
 	
     }else{
-	console.log("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
+	console.error("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
 	res.send("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
     }
     
 }, function(err, req, res, next) {
-    console.log("An error has occurred processing the request..." + err);
+    console.error("An error has occurred processing the request..." + err);
     res.send("An error has occurred processing the request..." + err);
 });
 

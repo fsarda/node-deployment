@@ -13,7 +13,8 @@
         "dependencies": {
             "express": "2.x",
 	    "jqtpl": "*",
-	    "async":"*"
+	    "async":"*",
+	    "aws-lib":"*"
 	},
 	"private": true
 }

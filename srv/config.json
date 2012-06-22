@@ -1,6 +1,25 @@
-{
-	"rpc": {
-		"port": 8011
-	}
-	
+{"rpc": {
+    "port": 8011
+},	
+ "repositoryName": "Agrosica",
+ "productionBranch" : "production",
+ "authorizedCommitUsers": ["dfellis", "fsarda"],
+ "scriptPath": "./scripts/",
+ "productionServerPath": "~/Agrosica/",
+ "prodKeyPath": "/home/ec2-user/keys/Production.pem",
+ "devKeyPath": "/home/ec2-user/keys/Deployment.pem",
+ "updateRepoAction": "cd ~/agrosica/portal/Agrosica; git checkout master; git pull origin master; cd -;",
+ "testMode": true,
+ "execChildFile": "deploymentChild.js",
+ "retryCount": 3,
+ "timeout": 0,
+ "restartTimeout": 5000,
+ "deployEmail": {
+     "sourceEmail": "deployment@agrosica.com",
+     "toAddresses":["francelice.sarda@agrosica.com","francelice@gmail.com"]
+ },
+ "SES": {
+     "key": "AKIAJN62WZ5AF4G6D5DQ",
+     "secret": "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"
+ }
 }
