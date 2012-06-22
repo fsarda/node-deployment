@@ -75,8 +75,8 @@
  },
  "image":{
      "dependencies": [
-	 {"name":"social", "type":"hard"},
-	 {"name":"discover", "type":"hard"},
+	 {"name":"social", "type":"soft"},
+	 {"name":"discover", "type":"soft"},
 	 {"name":"rendering", "type":"soft"}
      ],
      "paths":["nodejs/image"],

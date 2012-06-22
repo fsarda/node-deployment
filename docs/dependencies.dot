@@ -12,14 +12,14 @@ digraph AgroDependencies {
 	Image -> "jsonrpc-server";
 	Image -> "jsonrpc-client";
 	Image -> utils;
-	Social -> Image;
+	Social -> Image [style=dotted];
 	Social -> Registration;
 	Social -> Search;
 	Social -> "jsonrpc-server";
 	Social -> "jsonrpc-client";
 	Social -> utils;
 	Social -> "Search-lib";
-	Discover -> Image;
+	Discover -> Image [style=dotted];
 	Discover -> Registration;
 	Discover -> Search;
 	Discover -> "jsonrpc-server";
@@ -28,9 +28,11 @@ digraph AgroDependencies {
 	Discover -> "Search-lib";
 	Geoloc -> "jsonrpc-server";
 	Geoloc -> utils;
+	Geoloc -> "Geoloc-db";
 	Search -> "jsonrpc-server";
 	Search -> "jsonrpc-client";
 	Search -> utils;
+	Search -> "Search-db";
 	"Search-lib" -> "jsonrpc-server";
 	"Search-lib" -> "jsonrpc-client";
 	"Search-lib" -> utils;
@@ -45,4 +47,5 @@ digraph AgroDependencies {
 	Rendering -> Registration [style=dotted];
 	Rendering -> Search [style=dotted];
 	Rendering -> Mail [style=dotted];
+	
 }
