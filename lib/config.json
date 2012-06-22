@@ -1,7 +1,8 @@
 {
-"server": {
-    "host": "localhost",
-    "port": 8011
-},
-"deploymentServerUrl": "/message"
+	"disabled": true,
+	"server": {
+		"host": "localhost",
+		"port": 8011
+	},
+	"deploymentServerUrl": "/message"
 }
