@@ -9,7 +9,7 @@
     "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/mail/srv ec2-user@%location%",
     "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/mail/srv; sudo npm install . -g;'",
     "restart":"ssh -i %production.keypath% ec2-user@%location% 'amail restart;'",
-    "location": ["commonrpc"],
+    "location": ["commonrpc", "frontend"],
     "type": "server"
 },
  "rendering":{       
@@ -233,7 +233,7 @@
      "paths":["nodejs/geoloc/db"],
      "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/geoloc/db ec2-user@%location%",
      "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/geoloc/db; sudo npm install . -g;'",
-     "restart":"ssh -i %production.keypath% ec2-user@%location% 'geoloc-db restart;'",     
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'geoloc-db stop; search-db start'",     
      "location" : ["solr"],
      "type": "server"
  },
@@ -245,7 +245,7 @@
      "paths":["nodejs/search/db"],
      "copy": "rsync -vazrR -e 'ssh -i %production.keypath%' ~/Agrosica/nodejs/search/db ec2-user@%location%",
      "install":"ssh -i %production.keypath% ec2-user@%location% 'cd ~/Agrosica/nodejs/search/db; sudo npm install . -g;'",
-     "restart":"ssh -i %production.keypath% ec2-user@%location% 'search-db restart;'",     
+     "restart":"ssh -i %production.keypath% ec2-user@%location% 'search-db stop; search-db start;'",     
      "location" : ["solr"],
      "type": "server"
  }
