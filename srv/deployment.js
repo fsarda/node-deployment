@@ -19,6 +19,8 @@ var pendingServerRestarts = [];
 var pendingRetryExecutions = [];
 var retryCount = 0;
 var sesClient = aws.createSESClient(config.SES.key, config.SES.secret);
+var servers = [];
+
 
 //Setting up server configuration
 server.configure(function(){
@@ -31,11 +33,10 @@ server.configure(function(){
 
 
 //Send report email
-var sendReportEmail = function(message, errors, entities, instructions, pushjson, callback){
+var sendReportEmail = function(message, errors, entities, instructions, commit, callback){
 
-    var textBody ="A production deployment has been executed with the following characteristics: \n"+
-	"Pushed by: " + pushjson.pusher.name+"\n"+
-	"Commit id: " + pushjson.head_commit.id+"\n"+
+    var textBody ="A deployment process has been executed with the following characteristics: \n"+
+	"Commit id: " + lastCommitInstalled()+"\n"+
 	"Modified entities: " + entities+"\n\n";
 
     if(instructions.length!=0){
@@ -57,8 +58,7 @@ var sendReportEmail = function(message, errors, entities, instructions, pushjson
 	
 
     var htmlBody ="A production deployment has been executed with the following characteristics: <br/> "+
-	"<span style='font-weight: bold; text-decoration: underline;'>Pushed by:</span> <a href='https://github.com/"+pushjson.pusher.name+"'>" + pushjson.pusher.name+"</a><br/>"+
-	"<span style='font-weight: bold; text-decoration: underline;'>Commit id:</span> <a href='https://github.com/jsalcedo/Agrosica/commit/"+pushjson.head_commit.id+"'>" + pushjson.head_commit.id+"</a><br/>"+
+	"<span style='font-weight: bold; text-decoration: underline;'>Commit id:</span> <a href='https://github.com/jsalcedo/Agrosica/commit/"+commit+"'>" + commit+"</a><br/>"+
 	"<span style='font-weight: bold; text-decoration: underline;'>Modified entities:</span>" + entities+"<br/><br/>";
 
     if(instructions.length!=0){
@@ -78,8 +78,8 @@ var sendReportEmail = function(message, errors, entities, instructions, pushjson
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServerRestarts+"<br/>";
     
 
-    //console.log(textBody);
-    //console.log(htmlBody);
+    ////console.log(textBody);
+    ////console.log(htmlBody);
 	
     var sendArgs = {
 	'Destination.ToAddresses.member.1': config.deployEmail[0],
@@ -95,7 +95,7 @@ var sendReportEmail = function(message, errors, entities, instructions, pushjson
     
     /*return sesClient.call('SendEmail', sendArgs, function(result) {
 	if(result.Error) {
-	    console.log(result);
+	    //console.log(result);
 	    return callback(new Error("There was an error sending the report email"));
 	}
 	return callback({success: true});
@@ -146,25 +146,43 @@ var getMappedEntity = function(val){
 };
 
 //Get list of servers where modifications where made
-var getModifiedEntities = function(request){
+var getModifiedEntities = function(message,callback){
+
+    var date = new Date();
+    var affectedEntities = [];    
+    var lastCommit = getLastCommit();
+
+    //If we dont have a last commit installed, then we install everythig
+    if(lastCommit == null){
+	var modulesList = Object.keys(modules);
+
+	for(i in modulesList){
+	    affectedEntities.push(modulesList[i]);
+	}
+
+	callback(null,affectedEntities);
+	console.log("["+date+"] Modified entities found: " + affectedEntities);
+	return affectedEntities;
     
-    var commitModules = [];
+    }else{
 
-    //collect the changed paths
-    for(commit in request.commits){
-	var current = request.commits[commit];
-	var added = current.added == undefined ? [] : current.added;
-	var modified = current.modified== undefined ? [] :current.modified;
-	var deleted = current.deleted== undefined ? [] :current.deleted;
-	commitModules = commitModules.concat(added,modified,deleted);
+	fork(config.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
+	    var commitModules = [];
+	    commitModules = message.stdout.split("\n");
+	    
+	    //Getting affected entities
+	    affectedEntities = commitModules.map(getMappedEntity);
+	    affectedEntities = affectedEntities.sort();
+	    affectedEntities = affectedEntities.filter(function(val,ind,arr){
+		return (val != null && val.length!=0 && val!=arr[ind -1]) 
+	    });
+
+	    callback(null,affectedEntities);
+	    console.log("["+date+"] Modified entities found: " + affectedEntities);
+	    return affectedEntities;
+	});
     }
-       
-    //Getting affected entities
-    affectedEntities = commitModules.map(getMappedEntity);
-    affectedEntities = affectedEntities.sort();
-    affectedEntities = affectedEntities.filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
 
-    return affectedEntities;
 }
 
 /*
@@ -213,8 +231,9 @@ var getActionsToTake = function(dependency, entity){
 }
 
 //Search for dependency subgraph for changed entities
-var getDependencySubGraph = function(entities){
+var getDependencySubGraph = function(entities, callback){
     
+    var date = new Date();
     var result = [];
     var resultNames = [];
     var subgraph = [];
@@ -235,6 +254,8 @@ var getDependencySubGraph = function(entities){
 	    }; 
 	    pending.push(aux);
 	    pendingNames.push(entities[entityIndex]);
+	    result.push(aux);
+	    resultNames.push(entities[entityIndex]);
 	}
     }
     
@@ -251,8 +272,10 @@ var getDependencySubGraph = function(entities){
 	//Let's add its dependencies to result array
 	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
 	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
-
-	    if(resultNames.indexOf(dependency.name)==-1){		
+	    var indexResult = resultNames.indexOf(dependency.name);
+	    //If entity doesn't exist in resulting array,
+	    //we add it
+	    if(indexResult==-1){		
 		result.push(
 		{
 		    "name": dependency.name,
@@ -261,6 +284,14 @@ var getDependencySubGraph = function(entities){
 		});    
 		resultNames.push(dependency.name);
 	    }
+	    //If already exists, maybe has a different type of dependency
+	    //we add the possible new actions to take
+	    /*else{
+		result[indexResult].actions.concat(getActionsToTake(dependency.name,pending[pendingIndex].name))
+		    .filter(function(val,ind,arr){
+			return (val != null && val.length!=0 && val!=arr[ind -1]) 
+		    });
+	    }*/
 	}
 	
 	pending.splice(pendingIndex,1);
@@ -269,15 +300,19 @@ var getDependencySubGraph = function(entities){
     }
     
     result = result.sort(function(a,b){return a.level - b.level})
+    //console.log("["+date+"] Dependency subgraph found: " + result.map(JSON.stringify));	    
+    callback(null,result);
     return result;    
 }
 
-//Replace values in installations commands
+//Replace values in installation commands
 var buildCommand = function(command,location){
 
     command = command.replace('%production.keypath%', config.prodKeyPath);
     command = command.replace('%development.keypath%', config.prodKeyPath);
     command = command.replace('%location%', location);
+    command = command.replace('%rootRepo%', config.rootRepo);
+
     return command;
 
 }
@@ -303,9 +338,9 @@ var getEntityLocations = function(entity){
 
 
 //Builds deployment execution flow as a hash of intructions  
-var getExecutionFlow = function(graph){
+var getExecutionFlow = function(graph, callback){
 
-    var commands = {"updateRepo":[config.updateRepoAction], "copy":[],"install":[], "restart":[]};
+    var commands = {"copy":[],"install":[], "restart":[]};
     
     for(index in graph){
 	node = graph[index];
@@ -314,19 +349,24 @@ var getExecutionFlow = function(graph){
 
 	for(location in locations){
 	    for(action in node.actions){
-		commands[node.actions[action]].push(buildCommand(entity[node.actions[action]],locations[location]));
+		var command = buildCommand(entity[node.actions[action]],locations[location]);
+		if(commands[node.actions[action]].indexOf(command)==-1){
+		    commands[node.actions[action]].push(command);
+		}
 	    }
 	}
     }
-    
+
+    callback(null,commands);
     return commands;
 }
 
-
+//saves a command which has failed in retry array
 var saveRetryCommand = function(command){
     pendingRetryExecutions.push(command);
 }
 
+//initialize global values once deployment process has finished
 var initValues = function(){
     pendingRetryExecutions = [];
     pendingServerRestarts = [];
@@ -338,32 +378,54 @@ var fork = function(command, callback){
     var date = new Date();
     var execOptions = {timeout: config.timeout, killSignal: 'SIGTERM'};
     
-    var process = child.fork(__dirname+"/"+config.execChildFile);    
+    if(command.length != 0){
+	
+	var process = child.fork(__dirname+"/"+config.execChildFile);    
+	
+	process.on('message', function(message){
+	    
+	    if(message.code != null){
+		saveRetryCommand(command);
+	    }
+	    
+	    console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
+	    process.kill('SIGTERM');
+	    
+	    callback(null, message);
+	    return message;
+	    
+	});
+	
+	process.on("SIGTERM", function() {
+	    process.exit();
+	});    
+	
+	process.send({"command": command, "options": execOptions});
     
-    process.on('message', function(message){
-	
-	if(message.code != null){
-	    saveRetryCommand(command);
-	}
-	
-	console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
-	process.kill('SIGTERM');
-
-	callback();
-    });
-
-    process.on("SIGTERM", function() {
-	process.exit();
-    });    
-
-    process.send({"command": command, "options": execOptions});
+    }else{
+	callback(null, {"code":null, "stdout": "", "stderr": "" });
+    }
     	
 }
 
-//Executes several bash commands in parallel
-var forkParallel = function(commands,successMessage,callback){
+//Executes several bash commands in parallel or serial
+var executeSeveral = function(commands,mode,successMessage,callback){
     var date = new Date();
-    async.forEach(commands, fork
+    var func;
+
+    switch(mode){
+    case "serial":
+	func = async.forEachSeries;
+	break;
+    case "parallel":
+	func = async.forEach;
+	break;
+    default:
+	func = async.forEach;
+	break;
+    }
+
+    func(commands, fork
 		  ,function(err) {
 		      if(err != null && err.code !=null){
 			  console.error("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
@@ -384,10 +446,9 @@ var waitRestarts = function(callback){
     console.log("\n["+date+"] Waiting for servers to restart with a "+config.restartTimeout+" milliseconds timeout"); 
     setTimeout(
 	function(){
-	    console.log("\n["+date+"] Already waited for servers"); 
+	    console.log("\n["+date+"] Already waited for servers. Pending for restart are: "+pendingServerRestarts); 
 	    callback();
-	}
-	,config.restartTimeout);	    
+	}	,config.restartTimeout);	    
 }
 
 
@@ -397,20 +458,16 @@ var executeCommands = function(commands, callback){
     
     var date = new Date();
         
-    //console.log(commands["install"].map(function(command){ return simpleExec.bind(this,command)}));
     async.series([
 	
-	//Execute repo pull
-	fork.bind(this,commands["updateRepo"][0]),
-
 	//Execute copy commands
-	forkParallel.bind(this,commands["copy"],"Executed copy instructions sucessfully"),
+	executeSeveral.bind(this,commands["copy"],"parallel","Executed copy instructions sucessfully"),
 
 	//Execute install commands
-	forkParallel.bind(this,commands["install"],"Executed install instructions sucessfully"),
+	executeSeveral.bind(this,commands["install"],"parallel","Executed install instructions sucessfully"),
 
 	//Execute restart commands
-	forkParallel.bind(this,commands["restart"],"Asked restart instructions execution"),
+	executeSeveral.bind(this,commands["restart"],"serial","Asked restart instructions execution"),
 
 	//Wait some time for servers to restart
 	waitRestarts.bind(this)
@@ -420,7 +477,7 @@ var executeCommands = function(commands, callback){
 	
 	if(err == null || err.code == null){
 	    console.log("\n["+date+"] Pending instructions to execute " + pendingRetryExecutions);
-	    console.log("\n["+date+"] All instructions ended execution"); 
+	    ////console.log("\n["+date+"] All instructions ended execution"); 
 	    callback(null);
 	    return pendingRetryExecutions!=0;
 	    
@@ -436,21 +493,133 @@ var executeCommands = function(commands, callback){
 
 //This function executes deployment instructions verifying
 //if we have to retry deployment
-var executeCommandsRetrying =  function(commands, callback){
+/*var executeCommandsRetrying =  function(commands, callback){
     
     var date = new Date();
     pendingRetryExecutions = [];
 
     if(retryCount < config.retryCount && pendingServerRestarts.length!=0){
 	retryCount++;
-	console.log("Starting retry number " + retryCount);
+	////console.log("Starting retry number " + retryCount);
 	var res = tryToExecute(commands,callback);
 	return executeCommands(commands,callback);
     }else{
-	console.log("Finished retrying");
+	////console.log("Finished retrying");
 	return callback();
     }
     
+}*/
+
+
+//Update file that contains last commit installed
+var updateLastInstalled = function(callback){
+    
+    var date = new Date();
+    
+    //Get last hash from git log
+    var commitJSON = fork(buildCommand(config.lastCommitCommand), function(err,message){
+	
+	//Write to file
+	fs.writeFile(config.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
+	    if(err){
+		console.log("["+date+"] An error has occurred writing file "+config.lastCommitInstalled);
+		callback(err);
+		return;
+	    };
+	    callback(null);
+	    console.log("["+date+"] Last commit successfully saved: "+message.stdout);
+	});
+    });
+} 
+
+//Get last commit installed from file. If file
+//does not exist, it will install everything
+var getLastCommit = function(){
+    
+    var date = new Date();
+
+    try{
+	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+config.lastCommitInstalled), "utf8")).commit;
+	console.log("["+date+"] Last commit installed: " + lastCommit);
+	return lastCommit;
+    }catch(error){
+	console.log("["+date+"] Error getting file " + config.lastCommitInstalled +". Installing all services.");
+	return null;
+    }
+}
+
+
+//Function to update repository
+var updateRepo = function(callback){
+    fork(buildCommand(config.updateRepoAction), function(err,message){
+	if(err){
+	    callback(err);
+	    return message;
+	};
+	callback(null, message);
+	return message;
+    });
+}
+
+
+//Main function for updating and installing changes
+var install = function(callback){
+
+    var date = new Date();
+    async.waterfall([
+	
+	//Execute repo pull
+	updateRepo,
+	
+	//Determine Modified Entities
+	getModifiedEntities,
+	
+	//Determine dependency subgraph
+	getDependencySubGraph,
+	
+	//Determine execution flow
+	getExecutionFlow,
+	
+	//Perform deployment execution
+	executeCommands,
+	    
+	//Update file with last commit installed
+	updateLastInstalled
+	
+    ], function(err, results){
+	if(err == null || err.code == null){
+	    ////console.log("\n["+date+"] Finished services install process"); 
+	}else{
+	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
+	}
+	callback(null);
+
+    });
+}
+
+/*
+  Main function of deployment process. Executes install, 
+  notification and ending process in series
+ */
+var executeDeployment = function(){
+    async.series([
+	//install services
+	install,
+	
+	//Send email notification with deployment report
+	//sendReportEmail.bind(this, " ", pendingRetryExecutions, servers, commands, lastCommit),
+	
+	//Initialize server global variables
+	initValues.bind(this)
+    ], function(err, results){
+	if(err == null || err.code == null){
+	    ////console.log("\n["+date+"] Finished services install process"); 
+	}else{
+	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
+	}
+    });
+	
+
 }
 
 
@@ -464,7 +633,7 @@ server.get('/', function(req, res){
 server.post('/message' ,express.bodyParser(),function(request, response){
     
     var date = new Date();
-    console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
+//    ////console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
 
     if(request.body.messageType = "restart"){
 	index = pendingServerRestarts.indexOf(request.body.entityName);
@@ -473,14 +642,15 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 	}
     }
 
-    console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
+//    ////console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
     
     //Process message
     response.send("Got message request from "+request.body.entityName);
 }, function(err, request, response, next) { 
-    console.log("An error has occurred processing the message..." + err);
+    ////console.log("An error has occurred processing the message..." + err);
     response.send("An error has occurred processing the message..." + err);
 });
+
 
 
 
@@ -493,42 +663,17 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();
     var request  = JSON.parse(req.body.payload);
-    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
+    ////console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
     if(isRequestFromGitHubRepository(request, config)){
-	console.log("["+date+"] This push is from github's " + config.repositoryName + " repository");
+	////console.log("["+date+"] This push is from github's " + config.repositoryName + " repository");
 
 	if(isAuthorizedProductionChange(request, config)){	    
-	    console.log("["+date+"] This is an authorized production branch push");
+	    ////console.log("["+date+"] This is an authorized production branch push");
 	    
-	    servers = getModifiedEntities(request);
-	    console.log("["+date+"] List of modified entities: " + servers);	    
-
-	    graph = getDependencySubGraph(servers);
-	    console.log("["+date+"] Dependency subgraph found: " + graph.map(JSON.stringify));	    
+	    executeDeployment();
 	    
-	    commands = getExecutionFlow(graph);
-	    async.series([
-		
-		//Perform deployment execution
-		executeCommands.bind(this,commands),
-			
-		//Send email notification with deployment report
-		sendReportEmail.bind(this, " ", pendingRetryExecutions, servers, commands, request),
-	
-		//Initialize server global variables
-		initValues.bind(this)
-	    
-	    ], function(err, results){
-		if(err == null || err.code == null){
-		    console.log("\n["+date+"] Deployment finished and report notification sent"); 
-		}else{
-		    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
-		}
-	    });
-	    
-	    
-	    console.log("["+date+"] Proccessing...");
+	    ////console.log("["+date+"] Proccessing...");
 	    res.send("Proccessing...\n");
 	    
 	}else{
@@ -548,4 +693,7 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
-console.log('Deployment server running on port "' + config.rpc.port);
+////console.log('Deployment server running on port "' + config.rpc.port);
+
+//Execute deployment process
+executeDeployment();
