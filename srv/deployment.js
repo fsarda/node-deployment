@@ -107,18 +107,18 @@ var sendReportEmail = function(message, errors, entities, instructions, commit, 
 
 //Verifies if the request comes from  github
 var isRequestFromGitHubRepository = function(request, configData){
-    return request.repository!=undefined && configData.repositoryName.toUpperCase() === request.repository.name.toUpperCase();
+    return request.repository!=undefined && configData.repoInfo.repositoryName.toUpperCase() === request.repository.name.toUpperCase();
 }
 
 //Verifies conditions for running automated deployment
 var isAuthorizedProductionChange = function(request, configData){
     
     //Check if is a production branch push
-    var response = request.ref.indexOf(configData.productionBranch)!=-1;
+    var response = request.ref.indexOf(configData.repoInfo.productionBranch)!=-1;
     
     //Not everyone is authorized. Let's check if the pusher is
-    if(configData.authorizedCommitUsers.length!=0){
-	response = response && configData.authorizedCommitUsers.indexOf(request.pusher.name) != -1;
+    if(configData.repoInfo.authorizedCommitUsers.length!=0){
+	response = response && configData.repoInfo.authorizedCommitUsers.indexOf(request.pusher.name) != -1;
     }
 
     return response;
@@ -166,7 +166,7 @@ var getModifiedEntities = function(message,callback){
     
     }else{
 
-	fork(config.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
+	fork(config.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
 	    var commitModules = [];
 	    commitModules = message.stdout.split("\n");
 	    
@@ -300,7 +300,7 @@ var getDependencySubGraph = function(entities, callback){
     }
     
     result = result.sort(function(a,b){return a.level - b.level})
-    //console.log("["+date+"] Dependency subgraph found: " + result.map(JSON.stringify));	    
+    console.log("["+date+"] Dependency subgraph found: " + result.map(JSON.stringify));	    
     callback(null,result);
     return result;    
 }
@@ -309,9 +309,9 @@ var getDependencySubGraph = function(entities, callback){
 var buildCommand = function(command,location){
 
     command = command.replace('%production.keypath%', config.prodKeyPath);
-    command = command.replace('%development.keypath%', config.prodKeyPath);
+    command = command.replace('%development.keypath%', config.devKeyPath);
     command = command.replace('%location%', location);
-    command = command.replace('%rootRepo%', config.rootRepo);
+    command = command.replace('%rootRepo%', config.repoInfo.rootRepo);
 
     return command;
 
@@ -376,11 +376,11 @@ var initValues = function(){
 //Execute a bash command with a fork
 var fork = function(command, callback){
     var date = new Date();
-    var execOptions = {timeout: config.timeout, killSignal: 'SIGTERM'};
+    var execOptions = {timeout: config.execInfo.timeout, killSignal: 'SIGTERM', env: {"PATH": config.execInfo.userPATH}};
     
     if(command.length != 0){
 	
-	var process = child.fork(__dirname+"/"+config.execChildFile);    
+	var process = child.fork(__dirname+"/"+config.execInfo.execChildFile);    
 	
 	process.on('message', function(message){
 	    
@@ -443,12 +443,12 @@ var executeSeveral = function(commands,mode,successMessage,callback){
 var waitRestarts = function(callback){
 
     var date = new Date();
-    console.log("\n["+date+"] Waiting for servers to restart with a "+config.restartTimeout+" milliseconds timeout"); 
+    console.log("\n["+date+"] Waiting for servers to restart with a "+config.execInfo.restartTimeout+" milliseconds timeout"); 
     setTimeout(
 	function(){
 	    console.log("\n["+date+"] Already waited for servers. Pending for restart are: "+pendingServerRestarts); 
 	    callback();
-	}	,config.restartTimeout);	    
+	}	,config.execInfo.restartTimeout);	    
 }
 
 
@@ -498,7 +498,7 @@ var executeCommands = function(commands, callback){
     var date = new Date();
     pendingRetryExecutions = [];
 
-    if(retryCount < config.retryCount && pendingServerRestarts.length!=0){
+    if(retryCount < config.execInfo.retryCount && pendingServerRestarts.length!=0){
 	retryCount++;
 	////console.log("Starting retry number " + retryCount);
 	var res = tryToExecute(commands,callback);
@@ -517,12 +517,12 @@ var updateLastInstalled = function(callback){
     var date = new Date();
     
     //Get last hash from git log
-    var commitJSON = fork(buildCommand(config.lastCommitCommand), function(err,message){
+    var commitJSON = fork(buildCommand(config.repoInfo.lastCommitCommand), function(err,message){
 	
 	//Write to file
-	fs.writeFile(config.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
+	fs.writeFile(config.repoInfo.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
 	    if(err){
-		console.log("["+date+"] An error has occurred writing file "+config.lastCommitInstalled);
+		console.log("["+date+"] An error has occurred writing file "+config.repoInfo.lastCommitInstalled);
 		callback(err);
 		return;
 	    };
@@ -539,11 +539,11 @@ var getLastCommit = function(){
     var date = new Date();
 
     try{
-	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+config.lastCommitInstalled), "utf8")).commit;
+	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+config.repoInfo.lastCommitInstalled), "utf8")).commit;
 	console.log("["+date+"] Last commit installed: " + lastCommit);
 	return lastCommit;
     }catch(error){
-	console.log("["+date+"] Error getting file " + config.lastCommitInstalled +". Installing all services.");
+	console.log("["+date+"] Error getting file " + config.repoInfo.lastCommitInstalled +". Installing all services.");
 	return null;
     }
 }
@@ -551,7 +551,7 @@ var getLastCommit = function(){
 
 //Function to update repository
 var updateRepo = function(callback){
-    fork(buildCommand(config.updateRepoAction), function(err,message){
+    fork(buildCommand(config.repoInfo.updateRepoAction), function(err,message){
 	if(err){
 	    callback(err);
 	    return message;
@@ -588,7 +588,7 @@ var install = function(callback){
 	
     ], function(err, results){
 	if(err == null || err.code == null){
-	    ////console.log("\n["+date+"] Finished services install process"); 
+	    console.log("\n["+date+"] Finished services install process"); 
 	}else{
 	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
 	}
@@ -613,7 +613,7 @@ var executeDeployment = function(){
 	initValues.bind(this)
     ], function(err, results){
 	if(err == null || err.code == null){
-	    ////console.log("\n["+date+"] Finished services install process"); 
+	    console.log("\n["+date+"] Finished services install process"); 
 	}else{
 	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
 	}
@@ -633,7 +633,7 @@ server.get('/', function(req, res){
 server.post('/message' ,express.bodyParser(),function(request, response){
     
     var date = new Date();
-//    ////console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
+    console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
 
     if(request.body.messageType = "restart"){
 	index = pendingServerRestarts.indexOf(request.body.entityName);
@@ -642,7 +642,7 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 	}
     }
 
-//    ////console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
+    console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
     
     //Process message
     response.send("Got message request from "+request.body.entityName);
@@ -663,17 +663,17 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();
     var request  = JSON.parse(req.body.payload);
-    ////console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
+    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
     if(isRequestFromGitHubRepository(request, config)){
-	////console.log("["+date+"] This push is from github's " + config.repositoryName + " repository");
+	console.log("["+date+"] This push is from github's " + config.repoInfo.repositoryName + " repository");
 
 	if(isAuthorizedProductionChange(request, config)){	    
-	    ////console.log("["+date+"] This is an authorized production branch push");
+	    console.log("["+date+"] This is an authorized production branch push");
 	    
 	    executeDeployment();
 	    
-	    ////console.log("["+date+"] Proccessing...");
+	    console.log("["+date+"] Proccessing...");
 	    res.send("Proccessing...\n");
 	    
 	}else{
@@ -693,7 +693,7 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
-////console.log('Deployment server running on port "' + config.rpc.port);
+console.log('Deployment server running on port "' + config.rpc.port);
 
 //Execute deployment process
 executeDeployment();
