@@ -16,11 +16,10 @@ var server = express.createServer();
 
 //global variables
 var pendingServerRestarts = []; 
-var pendingRetryExecutions = [];
 var retryCount = 0;
 var sesClient = aws.createSESClient(config.SES.key, config.SES.secret);
 var servers = [];
-
+var restartDependency = {};
 
 //Setting up server configuration
 server.configure(function(){
@@ -33,7 +32,7 @@ server.configure(function(){
 
 
 //Send report email
-var sendReportEmail = function(message, errors, entities, instructions, commit, callback){
+var sendReportEmail = function(message,  entities, instructions, commit, callback){
 
     var textBody ="A deployment process has been executed with the following characteristics: \n"+
 	"Commit id: " + lastCommitInstalled()+"\n"+
@@ -53,7 +52,6 @@ var sendReportEmail = function(message, errors, entities, instructions, commit, 
     
     textBody += "\n\nReport Message: " +message+"\n";
     textBody += "\n\nError message: " +errors+"\n";
-    textBody += "\n\nFailed Instructions: " +pendingRetryExecutions+"\n";
     textBody += "\n\nServers not restarted: " +pendingServerRestarts+"\n";
 	
 
@@ -74,7 +72,6 @@ var sendReportEmail = function(message, errors, entities, instructions, commit, 
     
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Report Message:</span>" +message+"<br/>";
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Error message:</span>" +errors+"<br/>";
-    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Failed Insructions:</span>" +pendingRetryExecutions+"<br/>";
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServerRestarts+"<br/>";
     
 
@@ -185,11 +182,6 @@ var getModifiedEntities = function(message,callback){
 
 }
 
-/*
-Get dependency subGraph: Given a set of modified entities
-we want to build a graph containing the information to execute
-deployment.
-*/
 var getActionsToTake = function(dependency, entity){
 
     var type = (entity==='none')?"initial":modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
@@ -201,7 +193,7 @@ var getActionsToTake = function(dependency, entity){
     case "hard":
 	if(dependingEntity.type==="server"){
 	    action = ["restart"];
-	    pendingServerRestarts.push(dependency);
+	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}	
@@ -211,7 +203,7 @@ var getActionsToTake = function(dependency, entity){
     case "initial":
 	if(dependingEntity.type==="server"){
 	    action = ["copy","install","restart"];
-	    pendingServerRestarts.push(dependency);
+	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}
@@ -230,7 +222,11 @@ var getActionsToTake = function(dependency, entity){
     return action;
 }
 
-//Search for dependency subgraph for changed entities
+/*
+Get dependency subGraph: Given a set of modified entities
+we want to build a graph containing the information to execute
+deployment.
+*/
 var getDependencySubGraph = function(entities, callback){
     
     var date = new Date();
@@ -250,8 +246,10 @@ var getDependencySubGraph = function(entities, callback){
 	    var aux = {
 		"name": entities[entityIndex],
 		"level": modules[entities[entityIndex]].level,
-		"actions": getActionsToTake(entities[entityIndex],'none')
+		"actions": getActionsToTake(entities[entityIndex],'none'),
+		"dependsOn": [],
 	    }; 
+
 	    pending.push(aux);
 	    pendingNames.push(entities[entityIndex]);
 	    result.push(aux);
@@ -263,35 +261,40 @@ var getDependencySubGraph = function(entities, callback){
     pendingIndex = pending.length-1;
     while(pending.length != 0){
 	
-	//Let's put the entity in the result array
-	if(resultNames.indexOf(pendingNames[pendingIndex])==-1){
-	    result.push(pending[pendingIndex]);
-	    resultNames.push(pendingNames[pendingIndex]);
-	}
-	
 	//Let's add its dependencies to result array
 	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
 	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
 	    var indexResult = resultNames.indexOf(dependency.name);
+
 	    //If entity doesn't exist in resulting array,
 	    //we add it
 	    if(indexResult==-1){		
-		result.push(
-		{
+
+		var depInfo = {
 		    "name": dependency.name,
 		    "level": modules[dependency.name].level,
-		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name)
-		});    
+		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name),
+		    "dependsOn": [modules[pendingNames[pendingIndex]].type == "server"?pendingNames[pendingIndex]:null].filter(
+			function(val,ind,arr){
+			    return (val != null && val.length!=0 && val!=arr[ind -1]) 
+			})
+		};
+
+		result.push(depInfo);    
 		resultNames.push(dependency.name);
 	    }
+
 	    //If already exists, maybe has a different type of dependency
 	    //we add the possible new actions to take
-	    /*else{
-		result[indexResult].actions.concat(getActionsToTake(dependency.name,pending[pendingIndex].name))
-		    .filter(function(val,ind,arr){
-			return (val != null && val.length!=0 && val!=arr[ind -1]) 
-		    });
-	    }*/
+	    else{
+		result[indexResult].actions = result[indexResult].actions.concat(getActionsToTake(dependency.name, pending[pendingIndex].name)).sort().filter(function(val,ind,arr){
+		    return (val != null && val.length!=0 && val!=arr[ind -1]) 
+		});
+		
+		if(modules[pendingNames[pendingIndex]].type == "server"){
+		    result[indexResult].dependsOn.push(pendingNames[pendingIndex]);
+		}
+	    }
 	}
 	
 	pending.splice(pendingIndex,1);
@@ -338,37 +341,30 @@ var getEntityLocations = function(entity){
 
 
 //Builds deployment execution flow as a hash of intructions  
-var getExecutionFlow = function(graph, callback){
+var getExecutionFlow = function(graph, action){
 
-    var commands = {"copy":[],"install":[], "restart":[]};
-    
+    var commands = [];
+
     for(index in graph){
 	node = graph[index];
 	entity = modules[node.name];
 	locations = getEntityLocations(entity);
 
 	for(location in locations){
-	    for(action in node.actions){
-		var command = buildCommand(entity[node.actions[action]],locations[location]);
-		if(commands[node.actions[action]].indexOf(command)==-1){
-		    commands[node.actions[action]].push(command);
+	    if(node.actions.indexOf(action) != -1){
+		var command = buildCommand(entity[action],locations[location]);
+		if(commands.indexOf(command)==-1){
+		    commands.push(command);
 		}
 	    }
 	}
     }
 
-    callback(null,commands);
     return commands;
-}
-
-//saves a command which has failed in retry array
-var saveRetryCommand = function(command){
-    pendingRetryExecutions.push(command);
 }
 
 //initialize global values once deployment process has finished
 var initValues = function(){
-    pendingRetryExecutions = [];
     pendingServerRestarts = [];
     retryCount = 0;
 }
@@ -385,8 +381,9 @@ var fork = function(command, callback){
 	process.on('message', function(message){
 	    
 	    if(message.code != null){
-		saveRetryCommand(command);
+		callback(message.code);
 	    }
+
 	    
 	    console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
 	    process.kill('SIGTERM');
@@ -400,7 +397,7 @@ var fork = function(command, callback){
 	    process.exit();
 	});    
 	
-	process.send({"command": command, "options": execOptions});
+	process.send({"command": command, "options": execOptions, "retryCount": config.execInfo.retryCount});
     
     }else{
 	callback(null, {"code":null, "stdout": "", "stderr": "" });
@@ -437,6 +434,27 @@ var executeSeveral = function(commands,mode,successMessage,callback){
 		  });
 }
 
+//This function uses async.auto to generate
+//the dependency tree execution for services
+//restart
+var executeRestart = function(graph, callback){
+    
+    var funcObject = {};
+    
+    for(index in graph){
+	if(graph[index].actions.indexOf("restart")!=-1){
+	    funcObject[graph[index].name] = graph[index].dependsOn.concat([executeSeveral.bind(this,getExecutionFlow([graph[index]], "restart"), "parallel","Executed restart instructions for "+graph[index].name+" server")]);
+	}
+    }
+    
+    console.log("Dependency restarts: " + JSON.stringify(funcObject));
+
+    async.auto(funcObject, function(err, results){
+	console.log("Finished initiating restart instructions "+err+" "+results);
+    });
+    
+    callback(null);
+}
 
 //This function makes deployment server wait a little
 //for servers to restart
@@ -454,20 +472,20 @@ var waitRestarts = function(callback){
 
 //Execute commands does the actual deployment
 //by executing bash commnads
-var executeCommands = function(commands, callback){
+var executeCommands = function(graph, callback){
     
     var date = new Date();
-        
+
     async.series([
 	
-	//Execute copy commands
-	executeSeveral.bind(this,commands["copy"],"parallel","Executed copy instructions sucessfully"),
+	//Execute copy commandsfunction 
+	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully"),
 
-	//Execute install commands
-	executeSeveral.bind(this,commands["install"],"parallel","Executed install instructions sucessfully"),
+	//Execute install commands 
+	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully"),
 
 	//Execute restart commands
-	executeSeveral.bind(this,commands["restart"],"serial","Asked restart instructions execution"),
+	executeRestart.bind(this,graph),
 
 	//Wait some time for servers to restart
 	waitRestarts.bind(this)
@@ -476,39 +494,18 @@ var executeCommands = function(commands, callback){
     ],function(err, results){
 	
 	if(err == null || err.code == null){
-	    console.log("\n["+date+"] Pending instructions to execute " + pendingRetryExecutions);
-	    ////console.log("\n["+date+"] All instructions ended execution"); 
+	    console.log("\n["+date+"] Result " + results);
 	    callback(null);
-	    return pendingRetryExecutions!=0;
+	    return true;
 	    
 	}else{
-	    callback(err);
 	    console.error("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
+	    callback(err);
 	    return false;
 	}
     });
 
 }
-
-
-//This function executes deployment instructions verifying
-//if we have to retry deployment
-/*var executeCommandsRetrying =  function(commands, callback){
-    
-    var date = new Date();
-    pendingRetryExecutions = [];
-
-    if(retryCount < config.execInfo.retryCount && pendingServerRestarts.length!=0){
-	retryCount++;
-	////console.log("Starting retry number " + retryCount);
-	var res = tryToExecute(commands,callback);
-	return executeCommands(commands,callback);
-    }else{
-	////console.log("Finished retrying");
-	return callback();
-    }
-    
-}*/
 
 
 //Update file that contains last commit installed
@@ -577,9 +574,6 @@ var install = function(callback){
 	//Determine dependency subgraph
 	getDependencySubGraph,
 	
-	//Determine execution flow
-	getExecutionFlow,
-	
 	//Perform deployment execution
 	executeCommands,
 	    
@@ -607,7 +601,7 @@ var executeDeployment = function(){
 	install,
 	
 	//Send email notification with deployment report
-	//sendReportEmail.bind(this, " ", pendingRetryExecutions, servers, commands, lastCommit),
+	//sendReportEmail.bind(this, " ", servers, commands, lastCommit),
 	
 	//Initialize server global variables
 	initValues.bind(this)
@@ -656,9 +650,9 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 
 //Setting up controller on '/deployment' url post
 
-//This is server's main flow. In case of getting a valid
-//request from a github's production push, builds a structure
-//to make production enviroment deployment 
+//In case of getting a valid request from a github's 
+//production push, builds a structure to make 
+//production enviroment deployment 
 server.post('/deployment', express.bodyParser(), function(req, res) {
     
     var date = new Date();

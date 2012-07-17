@@ -8,7 +8,7 @@
     "level": 2,
     "copy": "",
     "install":"cd %rootRepo%/nodejs/mail/srv; sudo npm install . -g",
-    "restart":"amail restart",
+    "restart":"cd %rootRepo%/nodejs/mail/srv; amail restart; cd -",
     "location": ["commonrpc", "frontend"],
     "type": "server"
 },
@@ -18,11 +18,11 @@
      "level": 6,     
      "copy": "",
      "install":"cd %rootRepo%/nodejs/rendering; sudo npm install . -g;",
-     "restart":"rendering restart",
+     "restart":"cd %rootRepo%/nodejs/rendering; rendering restart; cd -",
      "location" : ["frontend"],
      "type": "server"
  },
- "registration":{
+ "registration":{ 
      "dependencies": [
 	 {"name":"image", "type":"hard"},
 	 {"name":"social", "type":"hard"},
@@ -33,7 +33,7 @@
      "level": 3,
      "copy": "",
      "install":"cd %rootRepo%/nodejs/registration; sudo npm install . -g;",
-     "restart":"registration restart",
+     "restart":"cd %rootRepo%/nodejs/registration; registration restart; cd -",
      "location" : ["commonrpc"],
      "type": "server"
  },
@@ -45,7 +45,7 @@
      "level": 2,
      "copy": "",
      "install":"cd %rootRepo%/nodejs/geoloc/srv; sudo npm install . -g;",
-     "restart":"geoloc-srv restart",
+     "restart":"cd %rootRepo%/nodejs/geoloc/srv; geoloc-srv restart; cd -",
      "location" : ["frontend"],
      "type": "server"
  },
@@ -57,7 +57,7 @@
      "level": 5,
      "copy": "",
      "install":"cd %rootRepo%/nodejs/discover; sudo npm install . -g;",
-     "restart":"discover restart",
+     "restart":"cd %rootRepo%/nodejs/discover; discover restart; cd -",
      "location" : ["commonrpc"],
      "type": "server"
  },
@@ -69,7 +69,7 @@
      "level": 5,
      "copy": "",
      "install":"cd %rootRepo%/nodejs/social; sudo npm install . -g;",
-     "restart":"social restart",
+     "restart":"cd %rootRepo%/nodejs/social; social restart; cd -",
      "location" : ["commonrpc"],
      "type": "server"
  },
@@ -79,14 +79,26 @@
 	 {"name":"discover", "type":"soft"},
 	 {"name":"rendering", "type":"soft"}
      ],
-     "paths":["nodejs/image"],
+     "paths":["nodejs/image/srv"],
      "level": 4,
      "copy": "",
-     "install":"cd %rootRepo%/nodejs/image; sudo npm install . -g;",
-     "restart":"image restart",
+     "install":"cd %rootRepo%/nodejs/image/srv; sudo npm install . -g;",
+     "restart":"cd %rootRepo%/nodejs/image/srv; image restart; cd -",
      "location" : ["image"],
      "type": "server"
  },
+"image-lib":{
+    "dependencies": [
+	{"name":"image", "type":"hard"}
+    ],
+    "paths":["nodejs/image/lib"],
+    "level": 3,
+    "copy": "",
+    "install":"cd %rootRepo%/nodejs/image/lib; sudo npm install . -g;",
+    "restart":"",
+    "location" : ["image"],
+    "type": "library"
+},
  "search":{
      "dependencies": [
 	 {"name":"social", "type":"hard"},
@@ -97,7 +109,7 @@
      "level": 4,
      "copy": "",
      "install":"cd %rootRepo%/nodejs/search/srv; sudo npm install . -g;",
-     "restart":"search-srv restart",
+     "restart":"cd %rootRepo%/nodejs/search/srv; search-srv restart; cd -",
      "location" : ["frontend"],
      "type": "server"
  },
@@ -186,7 +198,7 @@
      "paths":["nodejs/geoloc/db"],
      "copy": "",
      "install":"cd %rootRepo%/nodejs/geoloc/db; sudo npm install . -g;",
-     "restart":"geoloc-db stop; geoloc-db start",     
+     "restart":"cd %rootRepo%/nodejs/geoloc/db; geoloc-db stop; geoloc-db start; cd -",     
      "location" : ["solr"],
      "type": "server"
  },
@@ -198,7 +210,7 @@
      "paths":["nodejs/search/db"],
      "copy": "",
      "install":"cd %rootRepo%/nodejs/search/db; sudo npm install . -g;",
-     "restart":"search-db stop; search-db start",     
+     "restart":"cd %rootRepo%/nodejs/search/db; search-db stop; search-db start; cd -",     
      "location" : ["solr"],
      "type": "server"
  }
