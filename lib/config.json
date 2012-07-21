@@ -1,5 +1,5 @@
 {
-	"disabled": true,
+	"disabled": false,
 	"server": {
 		"host": "localhost",
 		"port": 8011

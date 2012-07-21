@@ -17,9 +17,9 @@
  "execInfo":{
      "userPATH": "/usr/local/bin/:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:",
      "execChildFile": "deploymentChild.js",
-     "retryCount": 3,
+     "retryCount": 0,
      "timeout": 120000,
-     "restartTimeout": 300000
+     "restartTimeout": 60000
  },
  "deployEmail": {
      "sourceEmail": "deployment@agrosica.com",
