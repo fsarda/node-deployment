@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// # The *Deployment* Server
+// Deployment module. Works installing 
 
 // Load vendor modules
 var express = require('express');
@@ -8,19 +8,21 @@ var fs = require('fs');
 var async = require('async');
 var child = require('child_process');
 var aws = require('aws-lib');
+var nodemailer = require('nodemailer');
 
 // Load configuration files
 var config = JSON.parse(fs.readFileSync(path.join(__dirname + "/config.json"), "utf8"));
-var modules = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-modules.json"), "utf8"));
+var deploymentConfig = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
 var server = express.createServer();
 
 //global variables
-var pendingServerRestarts = []; 
-var retryCount = 0;
-var sesClient = aws.createSESClient(config.SES.key, config.SES.secret);
-var servers = [];
-var restartDependency = {};
-var reverseGraph = {}
+var pendingServiceInit = []; 
+const diffCommand = "git diff --name-only %hash";
+const lastCommitCommand = "git log --pretty=format:'%H' -n 1";
+const lastHashInstalled = "lastHash.id";
+const updateRepoCommand = "git pull";
+const childFork = "deploymentChild.js";
+
 
 //Setting up server configuration
 server.configure(function(){
@@ -30,29 +32,6 @@ server.configure(function(){
     server.use(server.router);
     
 });
-
-//Build reverse dependency graph
-var completeDependencyGraph = function(){
-
-    var modulesList = Object.keys(modules);
-    
-    for(i in modulesList){
-
-	if(modules[modulesList[i]]["dependsOn"] == undefined || modules[modulesList[i]]["dependsOn"] == null){
-	    modules[modulesList[i]]["dependsOn"] = [];
-	}
-
-	for(j in modules[modulesList[i]].dependencies){
-	    var dependency = modules[modulesList[i]].dependencies[j];
-	    if(modules[dependency.name]["dependsOn"] == undefined || modules[dependency.name]["dependsOn"] == null){
-		modules[dependency.name]["dependsOn"] = [modulesList[i]];
-	    }else{
-		modules[dependency.name]["dependsOn"].push(modulesList[i]);
-	    }
-	}
-    }
-}
-
 
 //Send report email when everything has finished running
 var sendReportEmail = function(message,  entities, instructions, commit, callback){
@@ -75,11 +54,11 @@ var sendReportEmail = function(message,  entities, instructions, commit, callbac
     
     textBody += "\n\nReport Message: " +message+"\n";
     textBody += "\n\nError message: " +errors+"\n";
-    textBody += "\n\nServers not restarted: " +pendingServerRestarts+"\n";
+    textBody += "\n\nServers not restarted: " +pendingServiceInit+"\n";
 	
 
-    var htmlBody ="A production deployment has been executed with the following characteristics: <br/> "+
-	"<span style='font-weight: bold; text-decoration: underline;'>Commit id:</span> <a href='https://github.com/jsalcedo/Agrosica/commit/"+commit+"'>" + commit+"</a><br/>"+
+    var htmlBody ="A deployment process has been executed with the following characteristics: <br/> "+
+	"<span style='font-weight: bold; text-decoration: underline;'>Commit id:</span> <a href='#'>" + commit+"</a><br/>"+
 	"<span style='font-weight: bold; text-decoration: underline;'>Modified entities:</span>" + entities+"<br/><br/>";
 
     if(instructions.length!=0){
@@ -95,28 +74,22 @@ var sendReportEmail = function(message,  entities, instructions, commit, callbac
     
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Report Message:</span>" +message+"<br/>";
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Error message:</span>" +errors+"<br/>";
-    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServerRestarts+"<br/>";
+    htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServiceInit+"<br/>";
     
 	
     var sendArgs = {
-	'Destination.ToAddresses.member.1': config.deployEmail[0],
-	'ReplyToAddresses.member.1': config.deployEmail[1],
+	'Destination.ToAddresses.member.1': deploymentConfig.deployEmail[0],
+	'ReplyToAddresses.member.1': deploymentConfig.deployEmail[1],
 	'Message.Body.Text.Charset': 'UTF-8',
 	'Message.Body.Text.Data': textBody,
 	'Message.Body.Html.Charset': 'UTF-8',
 	'Message.Body.Html.Data': htmlBody,
 	'Message.Subject.Charset': 'UTF-8',
-	'Message.Subject.Data': 'Agrosica automatic deployment executed',
-	'Source': config.sourceEmail
+	'Message.Subject.Data': 'Automatic deployment executed',
+	'Source': deploymentConfig.sourceEmail
     };
     
-    /*return sesClient.call('SendEmail', sendArgs, function(result) {
-	if(result.Error) {
-	    //console.log(result);
-	    return callback(new Error("There was an error sending the report email"));
-	}
-	return callback({success: true});
-    });*/
+    //send email HERE
 
     return callback({success: true});
 };
@@ -183,7 +156,7 @@ var getModifiedEntities = function(callback){
 	
     }else{
 
-	fork(config.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
+	fork(deploymentConfig.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
 	    var commitModules = [];
 	    commitModules = message.stdout.split("\n");
 	    
@@ -213,7 +186,7 @@ var getActionsToTake = function(dependency, entity){
     case "hard":
 	if(dependingEntity.type==="server"){
 	    action = ["restart"];
-	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
+	    if(pendingServiceInit.indexOf(dependency) == -1){pendingServiceInit.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}	
@@ -223,7 +196,7 @@ var getActionsToTake = function(dependency, entity){
     case "initial":
 	if(dependingEntity.type==="server"){
 	    action = ["copy","install","restart"];
-	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
+	    if(pendingServiceInit.indexOf(dependency) == -1){pendingServiceInit.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}
@@ -231,7 +204,7 @@ var getActionsToTake = function(dependency, entity){
     default:
 	if(dependingEntity.type==="server"){
 	    action = ["restart"];
-	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
+	    if(pendingServiceInit.indexOf(dependency) == -1){pendingServiceInit.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}
@@ -317,7 +290,7 @@ var getDependencySubGraph = function(entities, callback){
 
     //Build restart dependencies
     for(res in result){
-	result[res]["dependsOn"] = pendingServerRestarts.filter(function(val,ind,arr){
+	result[res]["dependsOn"] = pendingServiceInit.filter(function(val,ind,arr){
 	    return (modules[result[res].name].dependsOn.indexOf(val) != -1);
 	});
 
@@ -332,11 +305,7 @@ var getDependencySubGraph = function(entities, callback){
 //Replace values in installation commands
 var buildCommand = function(command,location){
 
-    command = command.replace('%production.keypath%', config.prodKeyPath);
-    command = command.replace('%development.keypath%', config.devKeyPath);
     command = command.replace('%location%', location);
-    command = command.replace('%rootRepo%', config.repoInfo.rootRepo);
-
     return command;
 
 }
@@ -386,7 +355,7 @@ var getExecutionFlow = function(graph, action){
 
 //initialize global values once deployment process has finished
 var initValues = function(){
-    pendingServerRestarts = [];
+    pendingServiceInit = [];
     retryCount = 0;
 }
 
@@ -492,7 +461,7 @@ var waitRestarts = function(callback){
     console.log("\n["+date+"] Waiting for servers to restart with a "+config.execInfo.restartTimeout+" milliseconds timeout"); 
     setTimeout(
 	function(){
-	    console.log("\n["+date+"] Already waited for servers. Pending for restart are: "+pendingServerRestarts); 
+	    console.log("\n["+date+"] Already waited for servers. Pending for restart are: "+pendingServiceInit); 
 	    callback();
 	}	,config.execInfo.restartTimeout);	    
 }
@@ -507,10 +476,10 @@ var executeCommands = function(graph, callback){
     async.series([
 	
 	//Execute copy commandsfunction 
-	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully \n -------------------------------------------------------------------------------------------\n"),
+	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully"),
 
 	//Execute install commands 
-	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully \n -------------------------------------------------------------------------------------------\n"),
+	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully"),
 
 	//Execute restart commands
 	executeRestart.bind(this,graph),
@@ -542,12 +511,12 @@ var updateLastInstalled = function(callback){
     var date = new Date();
     
     //Get last hash from git log
-    var commitJSON = fork(buildCommand(config.repoInfo.lastCommitCommand), function(err,message){
+    var commitJSON = fork(buildCommand(deploymentConfig.repoInfo.lastCommitCommand), function(err,message){
 	
 	//Write to file
-	fs.writeFile(config.repoInfo.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
+	fs.writeFile(deploymentConfig.repoInfo.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
 	    if(err){
-		console.log("["+date+"] An error has occurred writing file "+config.repoInfo.lastCommitInstalled);
+		console.log("["+date+"] An error has occurred writing file "+deploymentConfig.repoInfo.lastCommitInstalled);
 		callback(err);
 		return;
 	    };
@@ -564,11 +533,11 @@ var getLastCommit = function(){
     var date = new Date();
 
     try{
-	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+config.repoInfo.lastCommitInstalled), "utf8")).commit;
+	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+deploymentConfig.repoInfo.lastCommitInstalled), "utf8")).commit;
 	console.log("["+date+"] Last commit installed: " + lastCommit);
 	return lastCommit;
     }catch(error){
-	console.log("["+date+"] Error getting file " + config.repoInfo.lastCommitInstalled +". Installing all services.");
+	console.log("["+date+"] Error getting file " + deploymentConfig.repoInfo.lastCommitInstalled +". Installing all services.");
 	return null;
     }
 }
@@ -576,7 +545,7 @@ var getLastCommit = function(){
 
 //Function to update repository
 var updateRepo = function(callback){
-    fork(buildCommand(config.repoInfo.updateRepoAction), function(err,message){
+    fork(buildCommand(deploymentConfig.repoInfo.updateRepoAction), function(err,message){
 	callback(err);
     });
 }
@@ -627,7 +596,7 @@ var executeDeployment = function(){
    	install.bind(this),
 	
    	//Send email notification with deployment report
-   	//sendReportEmail.bind(this, " ", servers, commands, lastCommit),
+   	sendReportEmail.bind(this, " ", servers, commands, lastCommit),
 	
    	//Initialize server global variables
    	initValues.bind(this)
@@ -655,13 +624,13 @@ server.post('/message' ,express.bodyParser(),function(request, response){
     console.log("["+date+"] Arriving message "+JSON.stringify(request.body));
 
     if(request.body.messageType = "restart"){
-	index = pendingServerRestarts.indexOf(request.body.entityName);
+	index = pendingServiceInit.indexOf(request.body.entityName);
 	if(index!=-1){
-	    pendingServerRestarts.splice(index, 1);
+	    pendingServiceInit.splice(index, 1);
 	}
     }
 
-    console.log("["+date+"] Pending servers for restart: "+pendingServerRestarts);
+    console.log("["+date+"] Pending servers for restart: "+pendingServiceInit);
     
     //Process message
     response.send("Got message request from "+request.body.entityName);
@@ -685,7 +654,7 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
     console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
     if(isRequestFromGitHubRepository(request, config)){
-	console.log("["+date+"] This push is from github's " + config.repoInfo.repositoryName + " repository");
+	console.log("["+date+"] This push is from github's " + deploymentConfig.repoInfo.repositoryName + " repository");
 
 	if(isAuthorizedProductionChange(request, config)){	    
 	    console.log("["+date+"] This is an authorized production branch push");
@@ -712,9 +681,8 @@ server.post('/deployment', express.bodyParser(), function(req, res) {
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
-console.log('Deployment server running on port "' + config.rpc.port);
+console.log('Deployment service running on port "' + config.rpc.port);
 
 //Execute deployment process
-completeDependencyGraph();
 executeDeployment();
 

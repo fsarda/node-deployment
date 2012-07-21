@@ -14,7 +14,8 @@
             "express": "2.x",
 	    "jqtpl": "*",
 	    "async":"*",
-	    "aws-lib":"*"
+	    "aws-lib":"*",
+	    "nodemailer": "*"
 	},
 	"private": true
 }
