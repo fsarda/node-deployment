@@ -20,6 +20,7 @@ var retryCount = 0;
 var sesClient = aws.createSESClient(config.SES.key, config.SES.secret);
 var servers = [];
 var restartDependency = {};
+var reverseGraph = {}
 
 //Setting up server configuration
 server.configure(function(){
@@ -30,8 +31,30 @@ server.configure(function(){
     
 });
 
+//Build reverse dependency graph
+var completeDependencyGraph = function(){
 
-//Send report email
+    var modulesList = Object.keys(modules);
+    
+    for(i in modulesList){
+
+	if(modules[modulesList[i]]["dependsOn"] == undefined || modules[modulesList[i]]["dependsOn"] == null){
+	    modules[modulesList[i]]["dependsOn"] = [];
+	}
+
+	for(j in modules[modulesList[i]].dependencies){
+	    var dependency = modules[modulesList[i]].dependencies[j];
+	    if(modules[dependency.name]["dependsOn"] == undefined || modules[dependency.name]["dependsOn"] == null){
+		modules[dependency.name]["dependsOn"] = [modulesList[i]];
+	    }else{
+		modules[dependency.name]["dependsOn"].push(modulesList[i]);
+	    }
+	}
+    }
+}
+
+
+//Send report email when everything has finished running
 var sendReportEmail = function(message,  entities, instructions, commit, callback){
 
     var textBody ="A deployment process has been executed with the following characteristics: \n"+
@@ -74,9 +97,6 @@ var sendReportEmail = function(message,  entities, instructions, commit, callbac
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Error message:</span>" +errors+"<br/>";
     htmlBody += "<br/><span style='font-weight: bold; text-decoration: underline;'>Servers not restarted:</span> " +pendingServerRestarts+"<br/>";
     
-
-    ////console.log(textBody);
-    ////console.log(htmlBody);
 	
     var sendArgs = {
 	'Destination.ToAddresses.member.1': config.deployEmail[0],
@@ -143,24 +163,24 @@ var getMappedEntity = function(val){
 };
 
 //Get list of servers where modifications where made
-var getModifiedEntities = function(message,callback){
+var getModifiedEntities = function(callback){
 
     var date = new Date();
     var affectedEntities = [];    
     var lastCommit = getLastCommit();
+    
 
-    //If we dont have a last commit installed, then we install everythig
+    //If we dont have a last commit installed, then we install everything
     if(lastCommit == null){
 	var modulesList = Object.keys(modules);
 
 	for(i in modulesList){
 	    affectedEntities.push(modulesList[i]);
 	}
-
-	callback(null,affectedEntities);
+	
 	console.log("["+date+"] Modified entities found: " + affectedEntities);
-	return affectedEntities;
-    
+	callback(null,affectedEntities);
+	
     }else{
 
 	fork(config.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
@@ -173,10 +193,10 @@ var getModifiedEntities = function(message,callback){
 	    affectedEntities = affectedEntities.filter(function(val,ind,arr){
 		return (val != null && val.length!=0 && val!=arr[ind -1]) 
 	    });
-
-	    callback(null,affectedEntities);
+	    
 	    console.log("["+date+"] Modified entities found: " + affectedEntities);
-	    return affectedEntities;
+	    callback(null,affectedEntities);
+
 	});
     }
 
@@ -185,7 +205,7 @@ var getModifiedEntities = function(message,callback){
 var getActionsToTake = function(dependency, entity){
 
     var type = (entity==='none')?"initial":modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
-    var action = "";
+    var action = [];
     var dependingEntity = modules[dependency];
     
 
@@ -211,7 +231,7 @@ var getActionsToTake = function(dependency, entity){
     default:
 	if(dependingEntity.type==="server"){
 	    action = ["restart"];
-	    pendingServerRestarts.push(dependency);
+	    if(pendingServerRestarts.indexOf(dependency) == -1){pendingServerRestarts.push(dependency);}
 	}else{
 	    action = ["copy","install"];
 	}
@@ -246,8 +266,7 @@ var getDependencySubGraph = function(entities, callback){
 	    var aux = {
 		"name": entities[entityIndex],
 		"level": modules[entities[entityIndex]].level,
-		"actions": getActionsToTake(entities[entityIndex],'none'),
-		"dependsOn": [],
+		"actions": getActionsToTake(entities[entityIndex],'none')
 	    }; 
 
 	    pending.push(aux);
@@ -265,7 +284,7 @@ var getDependencySubGraph = function(entities, callback){
 	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
 	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
 	    var indexResult = resultNames.indexOf(dependency.name);
-
+	    
 	    //If entity doesn't exist in resulting array,
 	    //we add it
 	    if(indexResult==-1){		
@@ -273,11 +292,7 @@ var getDependencySubGraph = function(entities, callback){
 		var depInfo = {
 		    "name": dependency.name,
 		    "level": modules[dependency.name].level,
-		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name),
-		    "dependsOn": [modules[pendingNames[pendingIndex]].type == "server"?pendingNames[pendingIndex]:null].filter(
-			function(val,ind,arr){
-			    return (val != null && val.length!=0 && val!=arr[ind -1]) 
-			})
+		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name)
 		};
 
 		result.push(depInfo);    
@@ -291,9 +306,6 @@ var getDependencySubGraph = function(entities, callback){
 		    return (val != null && val.length!=0 && val!=arr[ind -1]) 
 		});
 		
-		if(modules[pendingNames[pendingIndex]].type == "server"){
-		    result[indexResult].dependsOn.push(pendingNames[pendingIndex]);
-		}
 	    }
 	}
 	
@@ -301,8 +313,17 @@ var getDependencySubGraph = function(entities, callback){
 	pendingNames.splice(pendingIndex,1);
 	pendingIndex = pending.length-1;
     }
+
+
+    //Build restart dependencies
+    for(res in result){
+	result[res]["dependsOn"] = pendingServerRestarts.filter(function(val,ind,arr){
+	    return (modules[result[res].name].dependsOn.indexOf(val) != -1);
+	});
+
+    }
     
-    result = result.sort(function(a,b){return a.level - b.level})
+    result = result.sort(function(a,b){return a.level - b.level});
     console.log("["+date+"] Dependency subgraph found: " + result.map(JSON.stringify));	    
     callback(null,result);
     return result;    
@@ -381,6 +402,7 @@ var fork = function(command, callback){
 	process.on('message', function(message){
 	    
 	    if(message.code != null){
+		console.log("\n["+date+"] Received error  with code " + JSON.stringify(message));
 		callback(message.code);
 	    }
 
@@ -424,6 +446,7 @@ var executeSeveral = function(commands,mode,successMessage,callback){
 
     func(commands, fork
 		  ,function(err) {
+
 		      if(err != null && err.code !=null){
 			  console.error("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
 			  callback(err);
@@ -441,19 +464,24 @@ var executeRestart = function(graph, callback){
     
     var funcObject = {};
     
-    for(index in graph){
-	if(graph[index].actions.indexOf("restart")!=-1){
-	    funcObject[graph[index].name] = graph[index].dependsOn.concat([executeSeveral.bind(this,getExecutionFlow([graph[index]], "restart"), "parallel","Executed restart instructions for "+graph[index].name+" server")]);
+    for(inx in graph){
+	if(graph[inx].actions.indexOf("restart")!=-1){
+	    funcObject[graph[inx].name] = graph[inx].dependsOn.concat([executeSeveral.bind(this,getExecutionFlow([graph[inx]], "restart"), "parallel","Executed restart instructions for "+JSON.stringify(graph[inx])+" server")]);
 	}
     }
     
-    console.log("Dependency restarts: " + JSON.stringify(funcObject));
 
     async.auto(funcObject, function(err, results){
-	console.log("Finished initiating restart instructions "+err+" "+results);
+	if(err){
+	    console.log("An error occured during restart instructions "+err);
+	    callback(err);
+	}else{
+	    console.log("Finished initiating restart instructions "+err+" "+results);
+	    callback(null);
+	}
     });
     
-    callback(null);
+    
 }
 
 //This function makes deployment server wait a little
@@ -479,10 +507,10 @@ var executeCommands = function(graph, callback){
     async.series([
 	
 	//Execute copy commandsfunction 
-	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully"),
+	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully \n -------------------------------------------------------------------------------------------\n"),
 
 	//Execute install commands 
-	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully"),
+	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully \n -------------------------------------------------------------------------------------------\n"),
 
 	//Execute restart commands
 	executeRestart.bind(this,graph),
@@ -549,24 +577,15 @@ var getLastCommit = function(){
 //Function to update repository
 var updateRepo = function(callback){
     fork(buildCommand(config.repoInfo.updateRepoAction), function(err,message){
-	if(err){
-	    callback(err);
-	    return message;
-	};
-	callback(null, message);
-	return message;
+	callback(err);
     });
 }
-
 
 //Main function for updating and installing changes
 var install = function(callback){
 
     var date = new Date();
     async.waterfall([
-	
-	//Execute repo pull
-	updateRepo,
 	
 	//Determine Modified Entities
 	getModifiedEntities,
@@ -581,13 +600,15 @@ var install = function(callback){
 	updateLastInstalled
 	
     ], function(err, results){
-	if(err == null || err.code == null){
+	
+	if(err == null){
 	    console.log("\n["+date+"] Finished services install process"); 
+	    callback(null);
 	}else{
-	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
+	    console.error("\n["+date+"] There where errors in install execution " +JSON.stringify(err)); 
+	    callback(err);
 	}
-	callback(null);
-
+	
     });
 }
 
@@ -596,24 +617,28 @@ var install = function(callback){
   notification and ending process in series
  */
 var executeDeployment = function(){
+    
+    var date = new Date();
     async.series([
-	//install services
-	install,
+	//Execute repo pull
+	updateRepo.bind(this),
 	
-	//Send email notification with deployment report
-	//sendReportEmail.bind(this, " ", servers, commands, lastCommit),
+   	//install services
+   	install.bind(this),
 	
-	//Initialize server global variables
-	initValues.bind(this)
+   	//Send email notification with deployment report
+   	//sendReportEmail.bind(this, " ", servers, commands, lastCommit),
+	
+   	//Initialize server global variables
+   	initValues.bind(this)
     ], function(err, results){
-	if(err == null || err.code == null){
-	    console.log("\n["+date+"] Finished services install process"); 
-	}else{
-	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
-	}
+   	if(err == null){
+   	    console.log("\n["+date+"] Finished deployment process"); 
+   	}else{
+   	    console.error("\n["+date+"] There where errors in deployment execution " +JSON.stringify(err)); 
+   	}
     });
 	
-
 }
 
 
@@ -690,4 +715,6 @@ server.listen(config.rpc.port);
 console.log('Deployment server running on port "' + config.rpc.port);
 
 //Execute deployment process
+completeDependencyGraph();
 executeDeployment();
+
