@@ -1,0 +1,9 @@
+{
+ "repoInfo":{
+     "branch" : "production",
+     "authorizedCommitUsers": ["someuser"]
+ },
+ "deployEmail": {
+     "sourceEmail": "test@test.com",
+     "toAddresses":["test1@test.com","test2@test.com"]
+ }
