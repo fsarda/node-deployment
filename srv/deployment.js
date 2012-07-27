@@ -9,20 +9,21 @@ var async = require('async');
 var child = require('child_process');
 var aws = require('aws-lib');
 var nodemailer = require('nodemailer');
+var qf = require('queue-flow');
 
 // Load configuration files
 var config = JSON.parse(fs.readFileSync(path.join(__dirname + "/config.json"), "utf8"));
-var deploymentConfig = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
+//var deploymentConfig = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
 var server = express.createServer();
 
 //global variables
 var pendingServiceInit = []; 
 const diffCommand = "git diff --name-only %hash";
 const lastCommitCommand = "git log --pretty=format:'%H' -n 1";
-const lastHashInstalled = "lastHash.id";
+const lastCommitInstalled = "lastHash.id";
 const updateRepoCommand = "git pull";
 const childFork = "deploymentChild.js";
-
+const findAllCommand = "find . -name 'package.json'";
 
 //Setting up server configuration
 server.configure(function(){
@@ -142,39 +143,27 @@ var getModifiedEntities = function(callback){
     var affectedEntities = [];    
     var lastCommit = getLastCommit();
     
+    console.log("["+date+"] Last commit installed found: " + lastCommit);
 
-    //If we dont have a last commit installed, then we install everything
-    if(lastCommit == null){
-	var modulesList = Object.keys(modules);
-
-	for(i in modulesList){
-	    affectedEntities.push(modulesList[i]);
-	}
-	
-	console.log("["+date+"] Modified entities found: " + affectedEntities);
-	callback(null,affectedEntities);
-	
-    }else{
-
-	fork(deploymentConfig.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
+    var command = lastCommit == null? findAllCommand : diffCommand.replace("%hash%",lastCommit);
+    
+    fork(command, function(err,message){
+	    
+	    console.log("["+date+"] Executing callback fork");
 	    var commitModules = [];
 	    commitModules = message.stdout.split("\n");
+	    commitModules = commitModules.filter(function(val,ind,arr){
+		    return (val != null && val.length!=0 && val!=arr[ind -1]) 
+		});
 	    
-	    //Getting affected entities
-	    affectedEntities = commitModules.map(getMappedEntity);
-	    affectedEntities = affectedEntities.sort();
-	    affectedEntities = affectedEntities.filter(function(val,ind,arr){
-		return (val != null && val.length!=0 && val!=arr[ind -1]) 
-	    });
+	    console.log("["+date+"] Modified entities found: " + commitModules);
+	    callback(null,commitModules);
 	    
-	    console.log("["+date+"] Modified entities found: " + affectedEntities);
-	    callback(null,affectedEntities);
-
 	});
-    }
 
+    
 }
-
+    
 var getActionsToTake = function(dependency, entity){
 
     var type = (entity==='none')?"initial":modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
@@ -366,7 +355,7 @@ var fork = function(command, callback){
     
     if(command.length != 0){
 	
-	var process = child.fork(__dirname+"/"+config.execInfo.execChildFile);    
+	var process = child.fork(__dirname+"/"+childFork);    
 	
 	process.on('message', function(message){
 	    
@@ -511,12 +500,12 @@ var updateLastInstalled = function(callback){
     var date = new Date();
     
     //Get last hash from git log
-    var commitJSON = fork(buildCommand(deploymentConfig.repoInfo.lastCommitCommand), function(err,message){
+    var commitJSON = fork(buildCommand(lastCommitCommand), function(err,message){
 	
 	//Write to file
-	fs.writeFile(deploymentConfig.repoInfo.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
+	fs.writeFile(lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
 	    if(err){
-		console.log("["+date+"] An error has occurred writing file "+deploymentConfig.repoInfo.lastCommitInstalled);
+		console.log("["+date+"] An error has occurred writing file "+lastCommitInstalled);
 		callback(err);
 		return;
 	    };
@@ -533,11 +522,11 @@ var getLastCommit = function(){
     var date = new Date();
 
     try{
-	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+deploymentConfig.repoInfo.lastCommitInstalled), "utf8")).commit;
+	var lastCommit = JSON.parse(fs.readFileSync(path.join(lastCommitInstalled), "utf8")).commit;
 	console.log("["+date+"] Last commit installed: " + lastCommit);
 	return lastCommit;
     }catch(error){
-	console.log("["+date+"] Error getting file " + deploymentConfig.repoInfo.lastCommitInstalled +". Installing all services.");
+	console.log("["+date+"] Error getting file " + lastCommitInstalled +". Installing all services.");
 	return null;
     }
 }
@@ -684,5 +673,6 @@ server.listen(config.rpc.port);
 console.log('Deployment service running on port "' + config.rpc.port);
 
 //Execute deployment process
-executeDeployment();
+//executeDeployment();
 
+//getModifiedEntities(function(err){console.log(err);});

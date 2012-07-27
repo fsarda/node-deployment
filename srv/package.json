@@ -15,7 +15,8 @@
 	    "jqtpl": "*",
 	    "async":"*",
 	    "aws-lib":"*",
-	    "nodemailer": "*"
+	    "nodemailer": "*",
+	    "queue-flow": "*"
 	},
 	"private": true
 }
