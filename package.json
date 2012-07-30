@@ -3,12 +3,13 @@
 		{"name": "Francelice Sarda", "email": "francelice.sarda@agrosica.com"},
 		{"name": "David Ellis", "email": "david.ellis@agrosica.com"}
 	],
-	"name": "deployment-srv",
+	"name": "node-deployment",
 	"version": "0.1.0",
-	"description": "The (private) Production deployment Node.js Server",
+	"description": "The Node.js Deployment Server",
+	"main": "lib/deployment-lib.js",
 	"bin": {
-		"deployment": "./init.sh",
-		"deployment-node": "./deployment.js"
+		"deployment": "bin/init.sh",
+		"deployment-node": "bin/deployment.js"
 	},
         "dependencies": {
             "express": "2.x",
@@ -17,6 +18,5 @@
 	    "aws-lib":"*",
 	    "nodemailer": "*",
 	    "queue-flow": "*"
-	},
-	"private": true
+	}
 }
