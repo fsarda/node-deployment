@@ -9,19 +9,25 @@ var async = require('async');
 var child = require('child_process');
 var aws = require('aws-lib');
 var nodemailer = require('nodemailer');
+var qf = require('queue-flow');
 
 // Load configuration files
 var config = JSON.parse(fs.readFileSync(path.join(__dirname + "/config.json"), "utf8"));
-var deploymentConfig = JSON.parse(fs.readFileSync(path.join(__dirname + "/deployment-config.json"), "utf8"));
+var deploymentConfig = JSON.parse(fs.readFileSync("deployment-config.json"), "utf8");
 var server = express.createServer();
 
-//global variables
+//global variables and constants
 var pendingServiceInit = []; 
-const diffCommand = "git diff --name-only %hash";
+const diffCommand = "git diff --name-only %hash%";
 const lastCommitCommand = "git log --pretty=format:'%H' -n 1";
-const lastHashInstalled = "lastHash.id";
+const lastCommitInstalled = "lastHash.id";
 const updateRepoCommand = "git pull";
 const childFork = "deploymentChild.js";
+const findAllCommand = "find . -name 'package.json'";
+const configFile = "package.json";
+const copyRemote = "rsync -vazrR -e 'ssh -i %production.keypath%' %path% %user%@%location%:/";
+const commandRemote = "ssh -i %production.keypath% %user%@%location% '%command%'";
+var remoteEnabled = false;
 
 
 //Setting up server configuration
@@ -141,46 +147,34 @@ var getModifiedEntities = function(callback){
     var date = new Date();
     var affectedEntities = [];    
     var lastCommit = getLastCommit();
+    console.log("["+date+"] Last commit installed found: " + lastCommit);
+
+    var command = lastCommit == null? findAllCommand : diffCommand.replace("%hash%",lastCommit);
     
-
-    //If we dont have a last commit installed, then we install everything
-    if(lastCommit == null){
-	var modulesList = Object.keys(modules);
-
-	for(i in modulesList){
-	    affectedEntities.push(modulesList[i]);
+    fork(command, function(err,message){
+	
+	console.log("["+date+"] Executing callback fork");
+	var commitModules = [];
+	commitModules = message.stdout.split("\n");
+	commitModules = commitModules.filter(function(val,ind,arr){
+	    return (val != null && val.length!=0 && val!=arr[ind -1]) 
+	});
+	
+	for(i in commitModules){
+	    affectedEntities.push({"path":commitModules[i], "install":true});
 	}
 	
-	console.log("["+date+"] Modified entities found: " + affectedEntities);
+	console.log("["+date+"] Modified entities found: " + affectedEntities.map(JSON.stringify));
 	callback(null,affectedEntities);
 	
-    }else{
-
-	fork(deploymentConfig.repoInfo.diffRepoAction.replace("%hash%",lastCommit), function(err,message){
-	    var commitModules = [];
-	    commitModules = message.stdout.split("\n");
-	    
-	    //Getting affected entities
-	    affectedEntities = commitModules.map(getMappedEntity);
-	    affectedEntities = affectedEntities.sort();
-	    affectedEntities = affectedEntities.filter(function(val,ind,arr){
-		return (val != null && val.length!=0 && val!=arr[ind -1]) 
-	    });
-	    
-	    console.log("["+date+"] Modified entities found: " + affectedEntities);
-	    callback(null,affectedEntities);
-
-	});
-    }
-
+	});    
 }
-
+    
 var getActionsToTake = function(dependency, entity){
 
     var type = (entity==='none')?"initial":modules[entity].dependencies.filter(function(val){return val.name==dependency})[0].type;
     var action = [];
-    var dependingEntity = modules[dependency];
-    
+    var dependingEntity = modules[dependency];    
 
     switch(type){
     case "hard":
@@ -215,6 +209,7 @@ var getActionsToTake = function(dependency, entity){
     return action;
 }
 
+
 /*
 Get dependency subGraph: Given a set of modified entities
 we want to build a graph containing the information to execute
@@ -224,134 +219,112 @@ var getDependencySubGraph = function(entities, callback){
     
     var date = new Date();
     var result = [];
-    var resultNames = [];
-    var subgraph = [];
-    var pending = [];
-    var pendingNames = [];
-    var pendingIndex = 0;
-    
-    //Initialize pending array with modified entities
-    //This entities have to be reinstalled and restarted
-    //In case of being dependencies of type library, configured 
-    //restart action will be none so it will be only installed
-    for(entityIndex in entities){
-	if(pending.indexOf(entities[entityIndex])==-1){
-	    var aux = {
-		"name": entities[entityIndex],
-		"level": modules[entities[entityIndex]].level,
-		"actions": getActionsToTake(entities[entityIndex],'none')
-	    }; 
+    var foundPaths = [];
 
-	    pending.push(aux);
-	    pendingNames.push(entities[entityIndex]);
-	    result.push(aux);
-	    resultNames.push(entities[entityIndex]);
-	}
-    }
-    
-    //Look for dependencies and respective actions to take
-    pendingIndex = pending.length-1;
-    while(pending.length != 0){
-	
-	//Let's add its dependencies to result array
-	for(depIndex in modules[pendingNames[pendingIndex]].dependencies){
-	    var dependency = modules[pendingNames[pendingIndex]].dependencies[depIndex];
-	    var indexResult = resultNames.indexOf(dependency.name);
+    qf('entities').each(
+	function(val){
 	    
-	    //If entity doesn't exist in resulting array,
-	    //we add it
-	    if(indexResult==-1){		
+	    var array = val.path.split("/");
+	    array = array.splice(0,array.length-1);
+	    var path = array.length<=1?configFile:array.join("/")+"/"+configFile;
+	    
+	    if(foundPaths.indexOf(path)==-1){	    
+		try{
+		    var aux = JSON.parse(fs.readFileSync(path, "utf8"));
+		    		    
+		    var entity = {
+			"name": aux.name,
+			"deps": aux.serviceDependencies,
+			"service": aux.service,
+			"path": array.join("/"),
+			"actions": val.install?["copy", "install", "stop", "start"]:["stop", "start"]
+		    };
+		    
+		    if(val.install){
+			for(index in entity.deps){
+			    qf('entities').push({"path": entity.deps[index].path, "install":false});
+			}
+		    }
 
-		var depInfo = {
-		    "name": dependency.name,
-		    "level": modules[dependency.name].level,
-		    "actions": getActionsToTake(dependency.name,pending[pendingIndex].name)
-		};
-
-		result.push(depInfo);    
-		resultNames.push(dependency.name);
+		    console.log("["+date+"] Config file found: " +path);    
+		    result.push(entity);
+		    foundPaths.push(path);
+		    
+		}catch(err){		    
+		    if(err.code == "ENOENT"){
+			array = path.split("/");
+			array = array.splice(0,array.length-2);
+			path = array.length<=1?configFile:array.join("/")+"/"+configFile;
+			val.path = path;
+			if(array.length>1){
+			    qf('entities').push(val);
+			} 
+		    }else{
+			console.error("Unknown error processing path " + path + ": "+JSON.stringify(err));
+		    }
+		}
 	    }
-
-	    //If already exists, maybe has a different type of dependency
-	    //we add the possible new actions to take
-	    else{
-		result[indexResult].actions = result[indexResult].actions.concat(getActionsToTake(dependency.name, pending[pendingIndex].name)).sort().filter(function(val,ind,arr){
-		    return (val != null && val.length!=0 && val!=arr[ind -1]) 
-		});
-		
-	    }
-	}
-	
-	pending.splice(pendingIndex,1);
-	pendingNames.splice(pendingIndex,1);
-	pendingIndex = pending.length-1;
-    }
-
-
-    //Build restart dependencies
-    for(res in result){
-	result[res]["dependsOn"] = pendingServiceInit.filter(function(val,ind,arr){
-	    return (modules[result[res].name].dependsOn.indexOf(val) != -1);
 	});
 
-    }
+    qf('entities').load(entities);
+
+    qf('entities').on('empty', function(){
+	// console.log("["+date+"] Dependency subgraph found: ");
+	// for(index in result){
+	//     console.log(JSON.stringify(result[index]));
+	// }
+	callback(null,result);
+	return result;
+    });
+       
     
-    result = result.sort(function(a,b){return a.level - b.level});
-    console.log("["+date+"] Dependency subgraph found: " + result.map(JSON.stringify));	    
-    callback(null,result);
-    return result;    
 }
 
 //Replace values in installation commands
-var buildCommand = function(command,location){
+var buildCommand = function(instruction,command,location, path){
 
-    command = command.replace('%location%', location);
-    return command;
+    instruction = instruction.replace('%production.keypath%', deploymentConfig.prodKeyPath);
+    instruction = instruction.replace('%development.keypath%', deploymentConfig.devKeyPath);
+    instruction = instruction.replace('%command%', command);
+    instruction = instruction.replace('%location%', location);
+    instruction = instruction.replace('%user%', deploymentConfig.remoteUser);
+    instruction = instruction.replace('%path%', path);
+    return instruction;
 
 }
 
 //Get entities location list
-var getEntityLocations = function(entity){    
-    switch(entity.type){
+var getEntityLocations = function(entity, graph){    
+    
+    if(entity.service == undefined){
+	return [];
+    }
+
+    switch(entity.service.type){
     case 'library':
 	var locations = [];
-	
-	for(i in entity.dependencies){
-	    locations = locations.concat(modules[entity.dependencies[i].name].location);
-	}
-	
-	return locations.sort().filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
-	break;
-    default:
-	return entity.location;
-	break;
+	var deps = [];
 
-    }
-}
-
-
-//Builds deployment execution flow as a hash of intructions  
-var getExecutionFlow = function(graph, action){
-
-    var commands = [];
-
-    for(index in graph){
-	node = graph[index];
-	entity = modules[node.name];
-	locations = getEntityLocations(entity);
-
-	for(location in locations){
-	    if(node.actions.indexOf(action) != -1){
-		var command = buildCommand(entity[action],locations[location]);
-		if(commands.indexOf(command)==-1){
-		    commands.push(command);
+	for(i in graph){
+	    if(graph[i].deps != undefined){
+		for(j in graph[i].deps){
+		    if(graph[i].deps[j].name == entity.name){
+			//console.log("\n"+JSON.stringify(graph[i])+"========"+entity.name);
+			locations = locations.concat(getEntityLocations(graph[i],graph));
+		    }
 		}
 	    }
 	}
-    }
 
-    return commands;
+	return locations.sort().filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
+	break;
+    default:
+	return entity.service.location;
+	break;
+
+    }
 }
+
 
 //initialize global values once deployment process has finished
 var initValues = function(){
@@ -366,8 +339,7 @@ var fork = function(command, callback){
     
     if(command.length != 0){
 	
-	var process = child.fork(__dirname+"/"+config.execInfo.execChildFile);    
-	
+	var process = child.fork(__dirname+"/"+childFork);    
 	process.on('message', function(message){
 	    
 	    if(message.code != null){
@@ -376,7 +348,7 @@ var fork = function(command, callback){
 	    }
 
 	    
-	    console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
+	    //console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
 	    process.kill('SIGTERM');
 	    
 	    callback(null, message);
@@ -392,66 +364,9 @@ var fork = function(command, callback){
     
     }else{
 	callback(null, {"code":null, "stdout": "", "stderr": "" });
-    }
-    	
+    }    	
 }
 
-//Executes several bash commands in parallel or serial
-var executeSeveral = function(commands,mode,successMessage,callback){
-    var date = new Date();
-    var func;
-
-    switch(mode){
-    case "serial":
-	func = async.forEachSeries;
-	break;
-    case "parallel":
-	func = async.forEach;
-	break;
-    default:
-	func = async.forEach;
-	break;
-    }
-
-    func(commands, fork
-		  ,function(err) {
-
-		      if(err != null && err.code !=null){
-			  console.error("\n["+date+"] An error has occurred " + JSON.stringify(err));			 
-			  callback(err);
-		      }else{
-			  console.log("\n["+date+"] "+successMessage); 	
-			  callback(null);
-		      }		      
-		  });
-}
-
-//This function uses async.auto to generate
-//the dependency tree execution for services
-//restart
-var executeRestart = function(graph, callback){
-    
-    var funcObject = {};
-    
-    for(inx in graph){
-	if(graph[inx].actions.indexOf("restart")!=-1){
-	    funcObject[graph[inx].name] = graph[inx].dependsOn.concat([executeSeveral.bind(this,getExecutionFlow([graph[inx]], "restart"), "parallel","Executed restart instructions for "+JSON.stringify(graph[inx])+" server")]);
-	}
-    }
-    
-
-    async.auto(funcObject, function(err, results){
-	if(err){
-	    console.log("An error occured during restart instructions "+err);
-	    callback(err);
-	}else{
-	    console.log("Finished initiating restart instructions "+err+" "+results);
-	    callback(null);
-	}
-    });
-    
-    
-}
 
 //This function makes deployment server wait a little
 //for servers to restart
@@ -467,41 +382,124 @@ var waitRestarts = function(callback){
 }
 
 
+//Executes instructions to install or restart an entity
+var processEntity = function(graph, entity){
+
+    //Execute copy 
+    var locations = remoteEnabled?getEntityLocations(entity, graph):['dummy'];
+    console.log("\n\n"+entity.name+"++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++" + locations);
+
+    qf('copy').each(function(item){
+	var inst = remoteEnabled?copyRemote:entity.service.copy;
+	var command = buildCommand(inst,"",item,process.cwd()+"/"+entity.path);
+	console.log("A" +entity.name+"----"+command);
+	if(command.length!=0){
+	    fork(command, function(err, result){
+		if(err==null){
+		    qf('install').push(item);
+		}else{
+		    //NOTIFY ERROR
+		}
+	    });
+	}else{
+	    qf('install').push(item);
+	}
+    });
+
+    //Execute install 
+    qf('install').each(function(item){
+	var installCommand = "cd %path%;"+entity.service.install+"; cd -";
+	var inst = remoteEnabled?commandRemote:installCommand;
+	var command = buildCommand(inst,installCommand,item,process.cwd()+"/"+entity.path);
+	console.log("B" +entity.name+"----"+command);
+	if(command.length!=0){
+
+	    fork(command, function(err, result){
+		if(err==null){
+		    qf('restart').push(item);
+		}else{
+		    //NOTIFY ERROR
+		}
+	    });
+	}else{
+	    qf('restart').push(item);
+	}
+    });
+
+    //Execute restart
+    qf('restart').each(function(item){
+	var restartCommand = "cd %path%;"+entity.service.stop+";"+entity.service.start+"; cd -";
+	var inst = remoteEnabled?commandRemote:restartCommand;
+	var command = buildCommand(inst,restartCommand,item,process.cwd()+"/"+entity.path);
+	console.log("C"+ entity.name+"----"+command);
+	if(command.length!=0){
+	    fork(command, function(err, result){
+		if(err==null){
+		    console.log("Restarted entity sucessfully");
+		}else{
+		    //NOTIFY ERROR
+		}
+	    });
+	}
+    });
+
+    qf('copy').load(locations);
+}
+
 //Execute commands does the actual deployment
 //by executing bash commnads
 var executeCommands = function(graph, callback){
     
     var date = new Date();
+    var processed = {};
+    var depsName = [];
 
-    async.series([
-	
-	//Execute copy commandsfunction 
-	executeSeveral.bind(this,getExecutionFlow(graph,"copy"),"parallel","Executed copy instructions sucessfully"),
-
-	//Execute install commands 
-	executeSeveral.bind(this,getExecutionFlow(graph,"install"),"parallel","Executed install instructions sucessfully"),
-
-	//Execute restart commands
-	executeRestart.bind(this,graph),
-
-	//Wait some time for servers to restart
-	waitRestarts.bind(this)
-
-		
-    ],function(err, results){
-	
-	if(err == null || err.code == null){
-	    console.log("\n["+date+"] Result " + results);
-	    callback(null);
+    //Build an array with dependency names we are working with
+    //to filter those dependencies that will never be processed
+    for(i in graph){
+	depsName.push(graph[i].name);
+    }
+    
+    qf('linearize')
+    // Any item with no dependencies left is put into the process queue
+    // and flagged as processed
+	.filter(function(item) {
+	    if(item.deps == undefined || item.deps.length == 0){
+		qf('process').push(item);
+		processed[item.name] = true;
+		return false;
+	    }
 	    return true;
+	})
+    // Otherwise, it is checked for dependencies that can be removed
+	.map(function(item) {
+	    if(item.deps != undefined){
+		item.deps = item.deps.filter(function(dep){
+		    return processed[dep.name] !== true && depsName.indexOf(dep.name)!=-1;
+		});
+	    }
 	    
-	}else{
-	    console.error("\n["+date+"] There where errors in execution " +JSON.stringify(err)); 
-	    callback(err);
-	    return false;
+	    return item;
+	    
+	})
+    // And then puts it back into the linearize queue
+	.chain('linearize');
+    
+
+    //Each item with no dependencies can be copied,
+    //installed and restarted if that's the case
+    qf('process').each(
+	processEntity.bind(this, graph)
+    );
+    
+    //Load dependency graph into queue
+    qf('linearize').load(graph);
+    
+    qf('process').on('pull',function(){
+	if(Object.keys(processed).length == graph.length){
+	    callback(null);
 	}
     });
-
 }
 
 
@@ -511,12 +509,12 @@ var updateLastInstalled = function(callback){
     var date = new Date();
     
     //Get last hash from git log
-    var commitJSON = fork(buildCommand(deploymentConfig.repoInfo.lastCommitCommand), function(err,message){
+    var commitJSON = fork(buildCommand(lastCommitCommand), function(err,message){
 	
 	//Write to file
-	fs.writeFile(deploymentConfig.repoInfo.lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
+	fs.writeFile(lastCommitInstalled, '{"commit":"'+message.stdout+'"}', function (err) {
 	    if(err){
-		console.log("["+date+"] An error has occurred writing file "+deploymentConfig.repoInfo.lastCommitInstalled);
+		console.log("["+date+"] An error has occurred writing file "+lastCommitInstalled);
 		callback(err);
 		return;
 	    };
@@ -533,11 +531,11 @@ var getLastCommit = function(){
     var date = new Date();
 
     try{
-	var lastCommit = JSON.parse(fs.readFileSync(path.join(__dirname + "/"+deploymentConfig.repoInfo.lastCommitInstalled), "utf8")).commit;
+	var lastCommit = JSON.parse(fs.readFileSync(path.join(lastCommitInstalled), "utf8")).commit;
 	console.log("["+date+"] Last commit installed: " + lastCommit);
 	return lastCommit;
     }catch(error){
-	console.log("["+date+"] Error getting file " + deploymentConfig.repoInfo.lastCommitInstalled +". Installing all services.");
+	console.log("["+date+"] Error getting file " + lastCommitInstalled +". Installing all services.");
 	return null;
     }
 }
@@ -545,7 +543,7 @@ var getLastCommit = function(){
 
 //Function to update repository
 var updateRepo = function(callback){
-    fork(buildCommand(deploymentConfig.repoInfo.updateRepoAction), function(err,message){
+    fork(buildCommand(updateRepoCommand), function(err,message){
 	callback(err);
     });
 }
@@ -566,7 +564,10 @@ var install = function(callback){
 	executeCommands,
 	    
 	//Update file with last commit installed
-	updateLastInstalled
+	updateLastInstalled,
+
+	//Wait for restarting servers
+	waitRestarts
 	
     ], function(err, results){
 	
@@ -590,16 +591,16 @@ var executeDeployment = function(){
     var date = new Date();
     async.series([
 	//Execute repo pull
-	updateRepo.bind(this),
+	//updateRepo.bind(this),
 	
    	//install services
    	install.bind(this),
 	
    	//Send email notification with deployment report
-   	sendReportEmail.bind(this, " ", servers, commands, lastCommit),
+   	//sendReportEmail.bind(this, " ", servers, commands, lastCommit),
 	
    	//Initialize server global variables
-   	initValues.bind(this)
+   	//initValues.bind(this)
     ], function(err, results){
    	if(err == null){
    	    console.log("\n["+date+"] Finished deployment process"); 
@@ -611,7 +612,7 @@ var executeDeployment = function(){
 }
 
 
-//Setting up controller for GET on /
+//Setting up controller for GETon /
 server.get('/', function(req, res){
     res.send("Gettint request "+ req.body);
 });
@@ -685,4 +686,4 @@ console.log('Deployment service running on port "' + config.rpc.port);
 
 //Execute deployment process
 executeDeployment();
-
+//getModifiedEntities(function(err){console.log(err);});
