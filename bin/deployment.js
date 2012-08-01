@@ -451,25 +451,29 @@ var getLastCommit = function(){
     
     
 //Function to update repository
-var updateRepo = function(callback){
-    fork(buildCommand(updateRepoCommand), function(err,message){
-	    callback(err);
-	});
+var updateRepo = function(val,callback){
+    console.log("Executing repo update");
+    fork(buildCommand(updateRepoCommand), function(err, result){
+	console.log("lkjslkdjsa");
+	callback(null,val);
+    });
 }
     
 //Main function for updating and installing changes
-var install = function(){
+var install = function(val,callback){
 	
     var date = new Date();
 
-    qf([])
+    console.log("Executing install process "+ error);
+    /*qf([])
     .exec(getModifiedEntities)
     .exec(getDependencySubGraph)
     .exec(executeCommands)
     .exec(updateLastInstalled)
     .exec(waitRestarts)
+    */
     
-    return ["A","B",[1,2,3],"12121212",function(){}];
+    callback(null, ["A","B",[1,2,3],"12121212"]);
 }
     
 //Initialize global values after deployment process has finished
@@ -500,12 +504,43 @@ var executeDeployment = function(){
     
     var date = new Date();
     
-    qf([function(){}])
-    .exec(updateRepo)
-    .exec(install)
-    .exec(sendReportEmail)
-    .exec(initValues)
-    
+    qf([1])
+	.exec(updateRepo, function(err,res){console.log(JSON.stringify(err)+"----"+res);})
+	.exec(function(val, next){
+	    console.log(val);     
+	    fs.readFile(val, function(err, data) {
+		console.log(data);
+		next(err, "scripts/installdev.sh");
+	    }); 
+	}, function(req,res){console.log(req+" ----- "+res);});
+
+	//.exec(install,function(err,res){console.log(err+"----"+res);})
+    //.exec(sendReportEmail)
+    //.exec(initValues)
+  
+    /*qf(["deployment-config.json"])
+	.exec(function(val, next){
+	    console.log(val);     
+	    fs.readFile(val, function(err, data) {
+		console.log(data);
+		next(err, "scripts/installdev.sh");
+	    }); 
+	}, function(req,res){console.log(req+" ----- "+res);})
+	.exec(function(val, next){
+	    console.log(val);     
+	    fs.readFile(val, function(err, data) {
+		console.log(data);
+		next(err,"scripts/doc_gen.sh");
+	    }); 
+	}, function(req,res){console.log(req+" ----- "+res);})
+	.exec(function(val, next){
+	    console.log(val);     
+	    fs.readFile(val, function(err, data) {
+		console.log(data);
+		next(err, "scripts/serverctl.sh");
+	    }); 
+	}, function(req,res){console.log(req+" ----- "+res);})*/
+  
 }
     
     
