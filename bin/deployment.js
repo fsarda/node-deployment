@@ -454,7 +454,7 @@ var getLastCommit = function(){
 var updateRepo = function(val,callback){
     console.log("Executing repo update");
     fork(buildCommand(updateRepoCommand), function(err, result){
-	console.log("lkjslkdjsa");
+	console.log("ended updating repo");
 	callback(null,val);
     });
 }
@@ -513,11 +513,13 @@ var executeDeployment = function(){
 		next(err, "scripts/installdev.sh");
 	    }); 
 	}, function(req,res){console.log(req+" ----- "+res);});
-
-	//.exec(install,function(err,res){console.log(err+"----"+res);})
+	.exec(install,function(err,res){console.log(err+"----"+res);})
     //.exec(sendReportEmail)
     //.exec(initValues)
   
+
+    //THIS WORKS JUST FINE
+
     /*qf(["deployment-config.json"])
 	.exec(function(val, next){
 	    console.log(val);     
