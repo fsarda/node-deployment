@@ -26,7 +26,7 @@ const findAllCommand = "find . -name 'package.json'";
 const configFile = "package.json";
 const copyRemote = "rsync -vazrR -e 'ssh -i %production.keypath%' %path% %user%@%location%:/";
 const commandRemote = "ssh -i %production.keypath% %user%@%location% '%command%'";
-var remoteEnabled = false;
+const remoteEnabled = false;
 
 
 //Setting up server configuration
@@ -199,12 +199,12 @@ var fork = function(command, callback){
 	    if(message.code != null){
 		console.log("\n["+date+"] Received error  with code " + JSON.stringify(message));
 		callback(message.code);
+		return;
 	    }
 
 
 	    //console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
 	    process.kill('SIGTERM');
-
 	    callback(null, message);
 	    return message;
 
@@ -451,7 +451,7 @@ var getLastCommit = function(){
     
     
 //Function to update repository
-var updateRepo = function(val,callback){
+var updateRepo = function(callback){
     console.log("Executing repo update");
     fork(buildCommand(updateRepoCommand), function(err, result){
 	console.log("ended updating repo");
@@ -504,16 +504,17 @@ var executeDeployment = function(){
     
     var date = new Date();
     
-    qf([1])
-	.exec(updateRepo, function(err,res){console.log(JSON.stringify(err)+"----"+res);})
-	.exec(function(val, next){
-	    console.log(val);     
-	    fs.readFile(val, function(err, data) {
-		console.log(data);
-		next(err, "scripts/installdev.sh");
-	    }); 
-	}, function(req,res){console.log(req+" ----- "+res);});
-	.exec(install,function(err,res){console.log(err+"----"+res);})
+  //   qf([1])
+// 	.exec(updateRepo, function(err,res){console.log(JSON.stringify(err)+"----"+res);})
+// 	.exec(function(val, next){
+// 	    console.log(val);     
+// 	    fs.readFile(val, function(err, data) {
+// 		console.log(data);
+// 		next(err, "scripts/installdev.sh");
+// 	    }); 
+// 	}, function(req,res){console.log(req+" ----- "+res);});
+// //
+//	.exec(install,function(err,res){console.log(err+"----"+res);})
     //.exec(sendReportEmail)
     //.exec(initValues)
   
@@ -574,6 +575,83 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 	response.send("An error has occurred processing the message..." + err);
     });
 
+/////////////////////////////////////////////////////////////////////////////////
+
+/*
+  This queue receives a signal to trigger update repo command
+*/
+qf('updateRepo').exec(
+    function(val, next){
+
+	console.log("Receiving signal");
+	fork(updateRepoCommand, function(err, result){
+	    console.log("ended updating repo " + JSON.stringify(err) +" --- "+JSON.stringify(result));
+	    if(!err){
+		qf('error').push(err);
+		next([err, new Error('error updating repository')]);
+	    }else{
+		qf('modifiedEntities').push("modifiedEntitiesSignal");
+		next();
+	    }
+	})
+    });
+
+
+/*
+  This queue receives a signal from updateRepo queue, 
+  triggering a diff command to list modified entities
+*/
+qf('modifiedEntities').exec(
+    function(val,next){
+	
+	var lastCommit = getLastCommit();	
+	var command = lastCommit == null? findAllCommand : diffCommand.replace("%hash%",lastCommit);
+	
+	fork(command, function(err,message){
+	    if(err){
+		qf('error').push(err);
+		next([err, new Error('error calculating modified entities')]);
+	    }else{	
+		next(null, message.stdout.split("\n").sort()
+		     .filter(function(val,ind,arr){return (val != null && val.length!=0 && val!=arr[ind -1])})
+		     .map(function(val){return {"path":val, "install":true}})
+		    ); 
+	    }
+	});    
+    }
+).as('subgraph');
+
+/*
+  In 'subgraph', is triggered process for each entity and also 
+  dependencies that need to be restarted are calculated
+*/
+var paths = {};
+qf('subgraph').each(
+    function(val){
+	console.log(JSON.stringify(val));
+    });
+
+
+/*
+  Error handler queue
+ */
+qf('error').each(
+    function(val){
+	console.log("Received error "+ JSON.stringify(val));
+    }
+);
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -584,40 +662,39 @@ server.post('/message' ,express.bodyParser(),function(request, response){
 //production enviroment deployment 
 server.post('/deployment', express.bodyParser(), function(req, res) {
     
-	var date = new Date();
-	var request  = JSON.parse(req.body.payload);
-	console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
+    var date = new Date();
+    var request  = JSON.parse(req.body.payload);
+    console.log("["+date+"] Parsing request "+JSON.stringify(request)+"\n");
     
-	if(isRequestFromGitHubRepository(request, config)){
-	    console.log("["+date+"] This push is from github's " + deploymentConfig.repoInfo.repositoryName + " repository");
-	    
-	    if(isAuthorizedProductionChange(request, config)){	    
-		console.log("["+date+"] This is an authorized production branch push");
-	    
-		executeDeployment();
-	    
-		console.log("["+date+"] Proccessing...");
-		res.send("Proccessing...\n");
-	    
-	    }else{
-		console.error("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
-		res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
-	    }
+    if(isRequestFromGitHubRepository(request, config)){
+	console.log("["+date+"] This push is from github's " + deploymentConfig.repoInfo.repositoryName + " repository");
 	
+	if(isAuthorizedProductionChange(request, config)){	    
+	    console.log("["+date+"] This is an authorized production branch push");
+	    
+	    q('updateRepo').push("updateSignal");
+	    
+	    console.log("["+date+"] Proccessing...");
+	    res.send("Proccessing...\n");
+	    
 	}else{
-	    console.error("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
-	    res.send("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
+	    console.error("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
+	    res.send("["+date+"] This request does not correspond to an authorized production change " + JSON.stringify(request.pusher)+"-"+JSON.stringify(request.ref));	    
 	}
+	
+    }else{
+	console.error("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
+	res.send("["+date+"] This request does not have git hub hook's format " + JSON.stringify(req.body));
+    }
     
-    }, function(err, req, res, next) {
-	console.error("An error has occurred processing the request..." + err);
-	res.send("An error has occurred processing the request..." + err);
-    });
+}, function(err, req, res, next) {
+    console.error("An error has occurred processing the request..." + err);
+    res.send("An error has occurred processing the request..." + err);
+});
 
 //Starting listener on configured port
 server.listen(config.rpc.port);
 console.log('Deployment service running on port "' + config.rpc.port);
 
 //Execute deployment process
-executeDeployment();
- 
+qf('updateRepo').push("updateSignal");
