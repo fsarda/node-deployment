@@ -243,7 +243,9 @@ var getEntityLocations = function(entity, graph){
 	var locations = [];
 	var deps = [];
 
+
 	for(i in graph){
+	    //console.log("AJAAAA " +JSON.stringify(graph.length));
 	    if(graph[i].deps != undefined){
 		for(j in graph[i].deps){
 		    if(graph[i].deps[j].name == entity.name){
@@ -314,7 +316,7 @@ qf('installEntities').exec(
 	entities.forEach(
 	    function(entity){
 		if(!installPaths[entity]){
-		    qf('entityInfo').push([entity,['dependencies']]);
+		    qf('entityInfo').push([entity,'copy']);
 		    installPaths[entity.replace("./","")] = true;
 		}
 	    })
@@ -333,7 +335,7 @@ qf('dependencies').exec(
 		function(path){
 		    if(!installPaths[path.path] && !restartPaths[path.path]){
 			restartPaths[path.path.replace("./","")] = true;
-			qf('entityInfo').push([path.path,[]]);
+			qf('entityInfo').push([path.path,'restart']);
 		    }
 		});
 	}
@@ -361,11 +363,11 @@ qf('entityInfo')
 	    
 	})
     .exec(
-	function(path, queueList){
+	function(path, initQueue){
 	    
 	    try{
 		var aux = JSON.parse(fs.readFileSync(path, "utf8"));
-		return [null, [aux, path, queueList]];
+		return [null, [aux, path, initQueue]];
 	    }catch(err){		    
 		if(err.code == "ENOENT"){
 		    array = path.split("/");
@@ -381,29 +383,27 @@ qf('entityInfo')
 	    }
 	},"error")
     .map(
-	function(entity){
-	    var aux = {"name": entity[0].name, 
-		       "deps": entity[0].serviceDependencies, 
-		       "service": entity[0].service, 
-		       "path": entity[1].replace("./",""),
-		       "initQueue": entity[2].indexOf("dependencies")!= -1?'copy':'restart'};
-	    
-	    entity[2].map(
-		function(val){
-		    qf(val).push(aux);
-		});
-	    
-	    return aux;
-	})
-    .reduce(
-	function(result, entity) {	
-	    result.push(entity);
-	    return result;
-        }, function(result) {
-	    return [result];
-        }, graph
-    ).chain('process');
+	 function(entity){
+	     var aux = {"name": entity[0].name, 
+			"deps": entity[0].serviceDependencies, 
+			"service": entity[0].service, 
+			"path": entity[1].replace("./",""),
+			"initQueue": entity[2]};
 
+	     
+	     graph.push(aux);
+	     depsName.push(aux.name);
+	     
+	     // console.log(graph.map(JSON.stringify)+"/////");
+	     // console.log(depsName);
+	     //If we have to reinstall this entty, search for its dependencies
+	     if(entity[2] == 'copy'){
+		 qf('dependencies').push(aux);
+	     }
+	     
+	     return aux;
+	 })
+    .chain('process')
 
 /*
   Queue 'process' manages the deploy process. Once we have all the information
@@ -414,13 +414,6 @@ qf('process')
 // Any item with no dependencies left is put into the process queue
 // and flagged as processed
     .filter(function(item) {
-	if(depsName.length == 0){
-	    console.log("AAAAAAAA " +graph.length);
-	    for(i in graph){
-		depsName.push(graph[i].name);
-		console.log("AAAAAAAA " +depsName.length);
-	    }
-	}
 
 	if(item.deps == undefined || item.deps.length == 0){
 	    qf(item.initQueue).push(item);
@@ -433,11 +426,11 @@ qf('process')
     .map(function(item) {	
 	if(item.deps != undefined){
 	    item.deps = item.deps.filter(function(dep){
-		console.log("NOT PROCESSING "+depsName.indexOf(dep.name)+"==="+depsName+"////"+dep.name);
+		    //console.log("NOT PROCESSING "+depsName.indexOf(dep.name)+"==="+depsName+"////"+dep.name);
 		return processed[dep.name] !== true && depsName.indexOf(dep.name)!=-1;
 		
 	    });
-	    console.log("NOT PROCESSING 2"+JSON.stringify(item));
+	    //console.log("NOT PROCESSING 2"+JSON.stringify(item));
 	}
 	
 	return item;
