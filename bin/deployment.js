@@ -23,9 +23,6 @@ const updateRepoCommand = "git pull";
 const childFork = "deploymentChild.js";
 const findAllCommand = "find . -name 'package.json'";
 const configFile = "package.json";
-const copyRemote = "rsync -vazrR -e 'ssh -i %production.keypath%' %path% %user%@%location%:/";
-const commandRemote = "ssh -i %production.keypath% %user%@%location% '%command%'";
-const remoteEnabled = true;
 var installPaths = {};
 var restartPaths = {};
 var processed = {};
@@ -150,6 +147,7 @@ var getLastCommit = function(){
     var date = new Date();
     
     try{
+	//read file containing last commit installed
 	var lastCommit = JSON.parse(fs.readFileSync(path.join(lastCommitInstalled), "utf8")).commit;
 	console.log("["+date+"] Last commit installed: " + lastCommit);
 	return lastCommit;
@@ -181,7 +179,7 @@ var isAuthorizedProductionChange = function(request, configData){
     
 }
 
-//Replace values in installation commands
+//Replace possibly configuration values in command to execute
 var buildCommand = function(instruction,command,location, path){
 
     instruction = instruction.replace('%production.keypath%', deploymentConfig.prodKeyPath);
@@ -202,16 +200,19 @@ var fork = function(command, callback){
     
     if(command.length != 0){
 
+	//Execute a child process with command provided
 	var process = child.fork(__dirname+"/"+childFork);    
 	process.on('message', function(message){
 
+	    //If there was an error
 	    if(message.code != null){
 		console.log("\n["+date+"] Received error  with code " + JSON.stringify(message));
 		callback(message.code);
 		return;
 	    }
 
-
+	    
+	    //If everything went well, end process and return
 	    //console.log("\n["+date+"] Ending process ["+process.pid+"] "+command+" with code " + JSON.stringify(message));
 	    process.kill('SIGTERM');
 	    callback(null, message);
@@ -223,6 +224,7 @@ var fork = function(command, callback){
 	    process.exit();
 	});    
 
+	//Send exec arguments to child process
 	process.send({"command": command, "options": execOptions, "retryCount": config.execInfo.retryCount});
 	
     }else{
@@ -231,26 +233,30 @@ var fork = function(command, callback){
 }
 
 
-//Get entities location list
+//Get entities location list configured in files
 var getEntityLocations = function(entity, graph){    
+    
     
     if(entity.service == undefined){
 	return [];
     }
 
+    //If we are dealing with an entity of type library,
+    //its locations are derived from the other entities that 
+    //depend on it, so we have to look for locations of those entities
     switch(entity.service.type){
     case 'library':
 	var locations = [];
-	var deps = [];
-
 
 	for(i in graph){
-	    //console.log("AJAAAA " +JSON.stringify(graph.length));
 	    if(graph[i].deps != undefined){
-		for(j in graph[i].deps){
+		var j = 0;
+		//for(j in graph[i].deps){ //This failed and i don't have a clue why
+		while(j<graph[i].deps.length){
 		    if(graph[i].deps[j].name == entity.name){
 			locations = locations.concat(getEntityLocations(graph[i],graph));
 		    }
+		    j++;
 		}
 	    }
 	}
@@ -258,6 +264,8 @@ var getEntityLocations = function(entity, graph){
 	return locations.sort().filter(function(val,ind,arr){return (val != null && val!=arr[ind -1]) });
 	break;
     default:
+
+	//Otherwise we return locations configured for entity
 	return entity.service.location;
 	break;
 
@@ -272,12 +280,18 @@ qf('updateRepo').exec(
     function(val, next){
 
 	console.log("Receiving signal");
+
+	//Execute updateRepo command
 	fork(updateRepoCommand, function(err, result){
 	    console.log("ended updating repo " + JSON.stringify(err) +" --- "+JSON.stringify(result));
-	    if(!err){
+
+	    if(!err){ //MUST BE if(err) but i have it for testing purposes
 		qf('error').push(err);
 		next([err, new Error('error updating repository')]);
 	    }else{
+
+		//If everything is ok, we send a signal to modifiedEntities
+		//to determine which entities were modified in this version
 		qf('modifiedEntities').push("modifiedEntitiesSignal");
 		next();
 	    }
@@ -292,6 +306,8 @@ qf('updateRepo').exec(
 qf('modifiedEntities').exec(
     function(val,next){
 	
+	//We search for last commit installed, if there is no last commit installed
+	//we search for all config files from this directory
 	var lastCommit = getLastCommit();	
 	var command = lastCommit == null? findAllCommand : diffCommand.replace("%hash%",lastCommit);
 	
@@ -300,6 +316,8 @@ qf('modifiedEntities').exec(
 		qf('error').push(err);
 		next([err, new Error('error calculating modified entities')]);
 	    }else{	
+		
+		//If everything is ok, we send an array of distinct modified entities to 'installEntities'
 		next(null, [message.stdout.split("\n").sort()
 			    .filter(function(val,ind,arr){return (val != null && val.length!=0 && val!=arr[ind -1])})]); 
 	    }
@@ -308,16 +326,23 @@ qf('modifiedEntities').exec(
 ).chain('installEntities');
 
 /*
-  In 'installEntities', is triggered process for each entity and also 
+  In 'installEntities', is triggered process for each path and also 
   dependencies that need to be restarted are calculated
 */
+
+//HERE I WANTED TO DO AN FOREACH BUT I 
+//CAN'T GET TO TREAT IT AS AN ARRAY
 qf('installEntities').exec(
-    function(entities){
-	entities.forEach(
-	    function(entity){
-		if(!installPaths[entity]){
-		    qf('entityInfo').push([entity,'copy']);
-		    installPaths[entity.replace("./","")] = true;
+    function(paths){
+	paths.forEach(
+	    function(path){
+		if(!installPaths[path]){
+
+		    //We look for config info of this entity
+		    qf('entityInfo').push([path,'copy']);
+
+		    //Let's put this entity in a hash to not re-process it
+		    installPaths[path.replace("./","")] = true;
 		}
 	    })
     });
@@ -330,11 +355,18 @@ qf('installEntities').exec(
 */
 qf('dependencies').exec(
     function(entity){	
+
+	//If an path comes here, we are interested in its dependencies list
+	//For each dependency we want to add it to the graph we are working 
+	//with, so we send it to 'entityInfo' if has not been processed previously
 	if(entity.deps){
 	    entity.deps.map(
 		function(path){
+		    //If this entity has not been processed
 		    if(!installPaths[path.path] && !restartPaths[path.path]){
 			restartPaths[path.path.replace("./","")] = true;
+
+			//We look for config info of this entity
 			qf('entityInfo').push([path.path,'restart']);
 		    }
 		});
@@ -352,8 +384,18 @@ qf('dependencies').exec(
   every entity's package.json file and pushes that entity 
   into passed queue
 */
+
+//We know which files have been modified but we don't know where 
+//their corresponding configuration file is (so, we have to look 
+//for it). To do that, we search backward in each path until we match 
+// a directory containing config file
 qf('entityInfo')
+
+//Transform path received to a possible path of config file
     .map(
+	//entity defines the path where we are going to look for (entity[0])
+	//and a initQueue (entity[1]) for each entity. This initQueue is just 
+	//the queue where this entity will start processing (copy or restart)
 	function(entity){
 	    
 	    var array = entity[0].split("/");
@@ -362,26 +404,41 @@ qf('entityInfo')
 	    return [path.replace("./",""), entity[1]];
 	    
 	})
+
+//Let's test if path we build is correct. If we find the config file, our work is done
+//but if we don't find it, we have to remove one directory from path and retry
     .exec(
 	function(path, initQueue){
 	    
 	    try{
 		var aux = JSON.parse(fs.readFileSync(path, "utf8"));
 		return [null, [aux, path, initQueue]];
-	    }catch(err){		    
+		//everything went ok 
+
+	    }catch(err){		 
+		//If we did not find file
 		if(err.code == "ENOENT"){
+		    
+		    //Remove las directory from path
 		    array = path.split("/");
 		    array = array.splice(0,array.length-2);
 		    path = array.length<=1?configFile:array.join("/")+"/"+configFile;
+		    
+		    //Resend to this queue to process it again
 		    if(array.length>1){
 			qf('entityInfo').push(path.replace("./",""));
 		    } 
+
+		//Something else occurred
 		}else{
 		    console.error("Unknown error processing path " + path + ": "+JSON.stringify(err));
 		    return err;
 		}
 	    }
 	},"error")
+
+//If we found config file and read it succesfully, now we can
+//fully build entity with its config info
     .map(
 	 function(entity){
 	     var aux = {"name": entity[0].name, 
@@ -391,12 +448,13 @@ qf('entityInfo')
 			"initQueue": entity[2]};
 
 	     
+	     //Add to graph array and to auxiliar depsName array
+	     //which will help in processing stage
 	     graph.push(aux);
 	     depsName.push(aux.name);
 	     
-	     // console.log(graph.map(JSON.stringify)+"/////");
-	     // console.log(depsName);
-	     //If we have to reinstall this entty, search for its dependencies
+
+	     //If we have to reinstall this entity, search for its dependencies
 	     if(entity[2] == 'copy'){
 		 qf('dependencies').push(aux);
 	     }
@@ -426,11 +484,11 @@ qf('process')
     .map(function(item) {	
 	if(item.deps != undefined){
 	    item.deps = item.deps.filter(function(dep){
-		    //console.log("NOT PROCESSING "+depsName.indexOf(dep.name)+"==="+depsName+"////"+dep.name);
+
+		//We filter those dependencies that have been processed or are not present in graph
 		return processed[dep.name] !== true && depsName.indexOf(dep.name)!=-1;
 		
 	    });
-	    //console.log("NOT PROCESSING 2"+JSON.stringify(item));
 	}
 	
 	return item;
@@ -447,8 +505,8 @@ qf('copy').exec(
     function(entity,next){
 	
 	//NOT WORKING AT ALL
-	var locations = remoteEnabled?getEntityLocations(entity, graph):['dummy'];
-	var inst = remoteEnabled?copyRemote:entity.service.copy;
+	var locations = getEntityLocations(entity, graph);
+	var inst = entity.service.copy;
 	var commands = locations.map(function(item){return buildCommand(inst,"",item,process.cwd()+"/"+entity.path)});
 	
 	console.log("COPY "+entity.name+"---"+JSON.stringify(locations));
