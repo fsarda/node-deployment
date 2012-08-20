@@ -13,8 +13,6 @@
 	},
         "dependencies": {
             "express": "2.x",
-	    "jqtpl": "*",
-	    "async":"*",
 	    "aws-lib":"*",
 	    "nodemailer": "*",
 	    "queue-flow": "*"
